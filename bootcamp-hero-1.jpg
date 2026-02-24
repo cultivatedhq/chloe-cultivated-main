@@ -1,0 +1,7 @@
+/clarityaudit    /index.html    200
+/clarityaudit?*            /index.html    200
+/clarityauditpage          /index.html    200
+/clarityauditentry         /index.html    200
+/clarityauditredirect      /index.html    200
+/clarityaudit/*            /index.html    200
+/*    /index.html   200
