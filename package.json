@@ -1,38 +1,173 @@
-{
-  "name": "vite-react-typescript-starter",
-  "private": true,
-  "version": "0.0.0",
-  "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "lint": "eslint .",
-    "preview": "vite preview"
-  },
-  "dependencies": {
-    "@supabase/supabase-js": "^2.50.3",
-    "html2canvas": "^1.4.1",
-    "jspdf": "^2.5.1",
-    "lucide-react": "^0.344.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-router-dom": "^6.20.1",
-    "recharts": "^2.8.0"
-  },
-  "devDependencies": {
-    "@eslint/js": "^9.9.1",
-    "@types/react": "^18.3.5",
-    "@types/react-dom": "^18.3.0",
-    "@vitejs/plugin-react": "^4.3.1",
-    "autoprefixer": "^10.4.18",
-    "eslint": "^9.9.1",
-    "eslint-plugin-react-hooks": "^5.1.0-rc.0",
-    "eslint-plugin-react-refresh": "^0.4.11",
-    "globals": "^15.9.0",
-    "postcss": "^8.4.35",
-    "tailwindcss": "^3.4.1",
-    "typescript": "^5.5.3",
-    "typescript-eslint": "^8.3.0",
-    "vite": "^5.4.2"
+// Survey Data Processing Variables for Bolt Workflow
+// Use this code in a Logic/JavaScript block to process survey responses
+
+// Input variables expected:
+// - survey: session data from feedback_sessions table
+// - responses: array of responses from feedback_responses table
+
+try {
+  console.log('Processing survey data...', { 
+    surveyId: survey.id, 
+    responseCount: responses.length 
+  });
+
+  // Get total responses
+  const total_responses = responses.length;
+  
+  // Determine scale maximum
+  const scaleMax = survey.scale_type === 'likert_7' ? 7 : 5;
+  
+  // Only process first 10 questions (Likert scale questions)
+  // The 11th question is open text and handled separately
+  const likertQuestions = survey.questions.slice(0, 10);
+  const questionCount = likertQuestions.length;
+  
+  // Initialize question statistics
+  const questionStats = {};
+  
+  // Process each response
+  responses.forEach(response => {
+    // Process Likert scale responses (first 10 questions)
+    response.responses.forEach((score, questionIndex) => {
+      if (questionIndex < questionCount && score > 0 && score <= scaleMax) {
+        const questionText = likertQuestions[questionIndex];
+        if (!questionStats[questionText]) {
+          questionStats[questionText] = [];
+        }
+        questionStats[questionText].push(score);
+      }
+    });
+  });
+
+  // Calculate averages, medians, and distributions
+  const questions = Object.entries(questionStats).map(([questionText, scores]) => {
+    if (scores.length === 0) {
+      return {
+        text: questionText,
+        avg: 0,
+        median: 0,
+        dist: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, ...(scaleMax === 7 ? { 6: 0, 7: 0 } : {}) }
+      };
+    }
+
+    // Calculate average
+    const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+    
+    // Calculate median
+    const sorted = [...scores].sort((a, b) => a - b);
+    const median = sorted.length % 2 === 0
+      ? (sorted[Math.floor(sorted.length / 2) - 1] + sorted[Math.floor(sorted.length / 2)]) / 2
+      : sorted[Math.floor(sorted.length / 2)];
+    
+    // Calculate distribution
+    const distribution = {};
+    for (let i = 1; i <= scaleMax; i++) {
+      distribution[i] = scores.filter(s => s === i).length;
+    }
+    
+    return {
+      text: questionText,
+      avg: Math.round(avg * 100) / 100, // Round to 2 decimal places
+      median: Math.round(median * 10) / 10, // Round to 1 decimal place
+      dist: distribution
+    };
+  });
+
+  // Find top and lowest scoring questions
+  const validQuestions = questions.filter(q => q.avg > 0);
+  
+  let top_question = 'N/A';
+  let top_score = 0;
+  let lowest_question = 'N/A';
+  let low_score = 0;
+
+  if (validQuestions.length > 0) {
+    const topQuestion = validQuestions.reduce((a, b) => (a.avg > b.avg ? a : b));
+    const lowQuestion = validQuestions.reduce((a, b) => (a.avg < b.avg ? a : b));
+    
+    top_question = topQuestion.text;
+    top_score = topQuestion.avg;
+    lowest_question = lowQuestion.text;
+    low_score = lowQuestion.avg;
   }
+
+  // Calculate overall average score
+  const avg_score = validQuestions.length > 0 
+    ? validQuestions.reduce((sum, q) => sum + q.avg, 0) / validQuestions.length 
+    : 0;
+  
+  // Calculate percentage score
+  const avg_score_percent = Math.round((avg_score / scaleMax) * 100);
+
+  // Collect open text responses (from 11th question and comments)
+  const openTextResponses = [];
+  const additionalComments = [];
+  
+  responses.forEach(response => {
+    if (response.comment) {
+      // Check if comment contains start/stop/keep response
+      if (response.comment.includes('Start/Stop/Keep Response:')) {
+        const parts = response.comment.split('Additional Comments:');
+        const openTextPart = parts[0].replace('Start/Stop/Keep Response:\n\n', '').trim();
+        if (openTextPart) {
+          openTextResponses.push(openTextPart);
+        }
+        if (parts[1] && parts[1].trim()) {
+          additionalComments.push(parts[1].trim());
+        }
+      } else {
+        additionalComments.push(response.comment);
+      }
+    }
+  });
+
+  // Log processing results
+  console.log('Survey processing completed:', {
+    total_responses,
+    avg_score: avg_score.toFixed(2),
+    avg_score_percent,
+    top_question,
+    top_score: top_score.toFixed(2),
+    lowest_question,
+    low_score: low_score.toFixed(2),
+    questions_processed: questions.length,
+    open_text_responses: openTextResponses.length,
+    additional_comments: additionalComments.length
+  });
+
+  // Return all processed variables
+  return {
+    total_responses,
+    avg_score: Math.round(avg_score * 100) / 100,
+    avg_score_percent,
+    top_question,
+    top_score: Math.round(top_score * 100) / 100,
+    lowest_question,
+    low_score: Math.round(low_score * 100) / 100,
+    questions,
+    open_text_responses: openTextResponses,
+    additional_comments: additionalComments,
+    scale_max: scaleMax,
+    processing_timestamp: new Date().toISOString()
+  };
+
+} catch (error) {
+  console.error('Error processing survey data:', error);
+  
+  // Return default values in case of error
+  return {
+    total_responses: 0,
+    avg_score: 0,
+    avg_score_percent: 0,
+    top_question: 'Error processing',
+    top_score: 0,
+    lowest_question: 'Error processing',
+    low_score: 0,
+    questions: [],
+    open_text_responses: [],
+    additional_comments: [],
+    scale_max: 5,
+    error: error.message,
+    processing_timestamp: new Date().toISOString()
+  };
 }

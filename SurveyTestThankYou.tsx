@@ -1,236 +1,533 @@
-import React from 'react';
-import { ArrowRight, BarChart3, Shield, Users, FileText, Mail, Sparkles, CheckCircle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { Shield, ArrowRight, ArrowLeft, Clock, Calendar } from 'lucide-react';
+import { supabase, FeedbackSession, testConnection } from '../../lib/supabase';
 
-function SurveyTest() {
+function PulseCheckSurvey() {
+  const { sessionId } = useParams();
+  const navigate = useNavigate();
+  const [session, setSession] = useState<FeedbackSession | null>(null);
+  const [responses, setResponses] = useState<number[]>([]);
+  const [comment, setComment] = useState('');
+  const [openTextResponse, setOpenTextResponse] = useState('');
+  const [currentQuestion, setCurrentQuestion] = useState(0);
+  const [showComments, setShowComments] = useState(false);
+  const [showOpenText, setShowOpenText] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const [timeRemaining, setTimeRemaining] = useState<string>('');
+
+  useEffect(() => {
+    if (sessionId) {
+      loadSession();
+    }
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (session?.expires_at) {
+      const updateTimeRemaining = () => {
+        const now = new Date().getTime();
+        const expiry = new Date(session.expires_at).getTime();
+        const difference = expiry - now;
+
+        if (difference > 0) {
+          const days = Math.floor(difference / (1000 * 60 * 60 * 24));
+          const hours = Math.floor((difference % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+          const minutes = Math.floor((difference % (1000 * 60 * 60)) / (1000 * 60));
+
+          if (days > 0) {
+            setTimeRemaining(`${days} day${days > 1 ? 's' : ''}, ${hours} hour${hours > 1 ? 's' : ''} remaining`);
+          } else if (hours > 0) {
+            setTimeRemaining(`${hours} hour${hours > 1 ? 's' : ''}, ${minutes} minute${minutes > 1 ? 's' : ''} remaining`);
+          } else {
+            setTimeRemaining(`${minutes} minute${minutes > 1 ? 's' : ''} remaining`);
+          }
+        } else {
+          setTimeRemaining('Survey has expired');
+          // Automatically reload the page if the survey expires while user is on it
+          window.location.reload();
+        }
+      };
+
+      updateTimeRemaining();
+      const interval = setInterval(updateTimeRemaining, 60000); // Update every minute
+
+      return () => clearInterval(interval);
+    }
+  }, [session]);
+
+  const loadSession = async () => {
+    try {
+      console.log('Loading session:', sessionId);
+      
+      // Test connection first
+      try {
+        await testConnection();
+      } catch (connectionError) {
+        console.error('Connection test failed:', connectionError);
+        setError('Unable to connect to the database. Please check your internet connection and try again.');
+        return;
+      }
+      
+      const { data, error } = await supabase
+        .from('feedback_sessions')
+        .select('*')
+        .eq('id', sessionId)
+        .single();
+
+      if (error) {
+        console.error('Error loading session:', error);
+        if (error.code === 'PGRST116') {
+          setError('Survey not found or no longer active.');
+        } else {
+          setError('Unable to load survey. Please check the link and try again.');
+        }
+        return;
+      }
+      
+      if (!data) {
+        setError('Survey not found or no longer active.');
+        return;
+      }
+
+      // Check if survey has expired
+      const now = new Date();
+      const expiryDate = new Date(data.expires_at);
+      
+      if (now > expiryDate) {
+        setError('This survey has closed. The feedback window has ended.');
+        return;
+      }
+
+      // Check if survey is still active
+      if (!data.is_active) {
+        setError('This survey is no longer accepting responses.');
+        return;
+      }
+
+      console.log('Session loaded successfully:', data);
+      setSession(data);
+      
+      // Initialize responses array - only for Likert scale questions (first 10)
+      const likertQuestions = data.questions.slice(0, 10);
+      setResponses(new Array(likertQuestions.length).fill(0));
+    } catch (error) {
+      console.error('Error loading session:', error);
+      setError('Unable to load survey. Please check the link and try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const updateResponse = (questionIndex: number, value: number) => {
+    const newResponses = [...responses];
+    newResponses[questionIndex] = value;
+    setResponses(newResponses);
+  };
+
+  const nextQuestion = () => {
+    if (currentQuestion < 9) { // First 10 questions (0-9) are Likert scale
+      setCurrentQuestion(currentQuestion + 1);
+    } else if (session?.questions.length > 10) {
+      // Go to open text question (11th question)
+      setShowOpenText(true);
+    } else {
+      // Go to comments
+      setShowComments(true);
+    }
+  };
+
+  const prevQuestion = () => {
+    if (showComments) {
+      if (session?.questions.length > 10) {
+        setShowComments(false);
+        setShowOpenText(true);
+      } else {
+        setShowComments(false);
+        setCurrentQuestion(9);
+      }
+    } else if (showOpenText) {
+      setShowOpenText(false);
+      setCurrentQuestion(9);
+    } else if (currentQuestion > 0) {
+      setCurrentQuestion(currentQuestion - 1);
+    }
+  };
+
+  const continueToComments = () => {
+    setShowOpenText(false);
+    setShowComments(true);
+  };
+
+  const submitSurvey = async () => {
+    if (!session || !sessionId) return;
+
+    // Validate all Likert scale questions are answered
+    if (responses.some(r => r === 0)) {
+      alert('Please answer all questions before submitting.');
+      return;
+    }
+
+    // Check if survey is still within the time window
+    const now = new Date();
+    const expiryDate = new Date(session.expires_at);
+    
+    if (now > expiryDate) {
+      alert('This survey has expired and is no longer accepting responses.');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      // Prepare the submission data
+      const submissionData = {
+        session_id: sessionId,
+        responses: responses,
+        comment: comment.trim() || null
+      };
+
+      // If there's an open text response, add it to the comment
+      if (openTextResponse.trim()) {
+        const openTextPrefix = "Start/Stop/Keep Response:\n\n";
+        if (submissionData.comment) {
+          submissionData.comment = openTextPrefix + openTextResponse.trim() + "\n\nAdditional Comments:\n" + submissionData.comment;
+        } else {
+          submissionData.comment = openTextPrefix + openTextResponse.trim();
+        }
+      }
+
+      console.log('Submitting data to Supabase:', submissionData);
+
+      const { data, error } = await supabase
+        .from('feedback_responses')
+        .insert([submissionData])
+        .select();
+
+      if (error) {
+        console.error('Error submitting response:', error);
+        
+        if (error.code === 'PGRST301') {
+          throw new Error('Database connection lost. Please try again.');
+        } else if (error.message.includes('permission')) {
+          throw new Error('Permission denied. This may be due to the survey being expired or inactive.');
+        } else {
+          throw new Error(`Failed to submit response: ${error.message}`);
+        }
+      }
+
+      console.log('Response submitted successfully:', data);
+
+      // Try to send notification email but don't fail if it doesn't work
+      try {
+        await supabase.functions.invoke('send-notification', {
+          body: {
+            type: 'new_response',
+            session: session,
+            email: 'chloe@cultivatedhq.com.au'
+          }
+        });
+      } catch (notificationError) {
+        console.warn('Notification failed but response was submitted:', notificationError);
+      }
+
+      navigate('/pulsecheck/thankyou');
+    } catch (error) {
+      console.error('Error submitting survey:', error);
+      alert(`Error submitting survey: ${error.message || 'Please try again.'}`);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const getScaleLabels = () => {
+    if (session?.scale_type === 'likert_7') {
+      return [
+        'Strongly Disagree',
+        'Disagree',
+        'Somewhat Disagree',
+        'Neutral',
+        'Somewhat Agree',
+        'Agree',
+        'Strongly Agree'
+      ];
+    }
+    return [
+      'Strongly Disagree',
+      'Disagree',
+      'Neutral',
+      'Agree',
+      'Strongly Agree'
+    ];
+  };
+
+  const getScaleValue = (index: number) => {
+    return session?.scale_type === 'likert_7' ? index + 1 : index + 1;
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-beige-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-beige-600">Loading survey...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !session) {
+    return (
+      <div className="min-h-screen bg-beige-50 flex items-center justify-center">
+        <div className="text-center max-w-md mx-auto px-6">
+          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
+            <Shield className="w-8 h-8 text-red-600" />
+          </div>
+          <h1 className="text-2xl font-bold mb-4">Survey Not Available</h1>
+          <p className="text-beige-600 mb-6">{error}</p>
+          {error.includes('expired') || error.includes('closed') ? (
+            <div className="bg-beige-100 p-4 rounded-lg mb-6">
+              <p className="text-sm text-beige-700">
+                This survey closed after 3 days as scheduled. The manager will receive their feedback report automatically.
+              </p>
+            </div>
+          ) : null}
+          <a 
+            href="/pulsecheck"
+            className="bg-primary text-white px-6 py-3 rounded-full font-medium hover:bg-secondary transition"
+          >
+            Return to Home
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  const scaleLabels = getScaleLabels();
+  const likertQuestions = session.questions.slice(0, 10); // First 10 are Likert scale
+  const openTextQuestion = session.questions[10]; // 11th question is open text
+  const isLastLikertQuestion = currentQuestion === (likertQuestions.length - 1);
+  
+  // Calculate total steps: Likert questions + open text (if exists) + comments
+  const totalSteps = likertQuestions.length + (openTextQuestion ? 1 : 0) + 1;
+  let currentStep = currentQuestion + 1;
+  if (showOpenText) currentStep = likertQuestions.length + 1;
+  if (showComments) currentStep = totalSteps;
+  
+  const progress = (currentStep / totalSteps) * 100;
+
   return (
     <div className="min-h-screen bg-beige-50 text-beige-800">
-      {/* Navigation */}
-      <nav className="bg-beige-50/95 backdrop-blur-sm shadow-sm">
-        <div className="max-w-7xl mx-auto px-6 py-4">
-          <div className="flex justify-between items-center">
-            <a href="/" className="text-2xl font-bold gradient-text font-poppins">Cultivated HQ</a>
-            <div className="flex space-x-6 items-center">
-              <a href="/" className="text-beige-500 hover:text-primary transition">Home</a>
-              <a href="/surveytest/create" className="bg-primary text-beige-50 px-6 py-2 rounded-full font-medium hover:bg-secondary transition">
-                Create Survey
-              </a>
-              <a href="/surveytest/admin" className="border border-primary text-primary px-4 py-2 rounded-full font-medium hover:bg-primary hover:text-white transition">
-                Admin
-              </a>
+      {/* Header */}
+      <div className="bg-white shadow-sm">
+        <div className="max-w-4xl mx-auto px-6 py-6">
+          <div className="flex items-center justify-between mb-4">
+            <h1 className="text-2xl font-bold font-poppins">{session.title}</h1>
+            <div className="flex items-center text-sm text-beige-500">
+              <Shield className="w-4 h-4 mr-2" />
+              Anonymous & Secure
             </div>
           </div>
-        </div>
-      </nav>
+          
+          {session.description && (
+            <p className="text-beige-600 mb-4">{session.description}</p>
+          )}
 
-      {/* Hero Section */}
-      <header className="relative py-32 grid-pattern">
-        <div className="max-w-7xl mx-auto px-6 text-center">
-          <div className="max-w-4xl mx-auto">
-            <span className="inline-flex items-center px-4 py-2 rounded-full border border-primary text-primary text-sm mb-8">
-              <Sparkles className="w-4 h-4 mr-2" />
-              Instant Feedback Testing Platform
-            </span>
-            <h1 className="text-5xl md:text-7xl font-bold mb-8 leading-tight font-poppins">
-              Survey <span className="gradient-text">Test</span>
-            </h1>
-            <p className="text-xl md:text-2xl text-beige-600 mb-12 max-w-4xl mx-auto">
-              Test anonymous feedback surveys with instant processing. Create surveys that expire in 1 minute and get professional PDF reports delivered immediately.
-            </p>
-            <div className="flex flex-col sm:flex-row items-center justify-center space-y-4 sm:space-y-0 sm:space-x-6">
-              <a 
-                href="/surveytest/create"
-                className="bg-primary text-beige-50 px-8 py-4 rounded-full font-semibold hover:bg-secondary transition flex items-center w-full sm:w-auto justify-center"
-              >
-                Create Test Survey
-                <ArrowRight className="ml-2 w-4 h-4" />
-              </a>
-              <a 
-                href="#how-it-works"
-                className="border-2 border-primary text-primary px-8 py-4 rounded-full font-semibold hover:bg-primary hover:text-white transition w-full sm:w-auto text-center"
-              >
-                See How It Works
-              </a>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* Benefits Section */}
-      <section className="py-32">
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="text-center mb-20">
-            <span className="text-primary text-sm uppercase tracking-wider font-bold">WHY SURVEY TEST</span>
-            <h2 className="text-4xl md:text-5xl font-bold mt-4 mb-6 font-poppins">Built for Rapid Testing</h2>
-            <p className="text-beige-600 max-w-3xl mx-auto text-lg">
-              Test your feedback systems quickly with instant processing and immediate report delivery.
-            </p>
-          </div>
-
-          <div className="grid md:grid-cols-3 gap-8">
-            <div className="bg-white p-8 rounded-2xl shadow-lg">
-              <div className="w-16 h-16 bg-orange-500 rounded-2xl flex items-center justify-center mb-6">
-                <Shield className="w-8 h-8 text-white" />
+          {/* Time Remaining Notice */}
+          {timeRemaining && (
+            <div className="bg-primary/10 p-3 rounded-lg mb-4">
+              <div className="flex items-center text-sm">
+                <Clock className="w-4 h-4 mr-2 text-primary" />
+                <span className="font-medium text-primary">Survey closes: </span>
+                <span className="ml-1 text-beige-700">{timeRemaining}</span>
               </div>
-              <h3 className="text-xl font-bold mb-4 font-poppins">1-Minute Expiry</h3>
-              <p className="text-beige-600">Surveys automatically expire after 1 minute, perfect for quick testing and validation of your feedback systems.</p>
             </div>
+          )}
 
-            <div className="bg-white p-8 rounded-2xl shadow-lg">
-              <div className="w-16 h-16 bg-primary rounded-2xl flex items-center justify-center mb-6">
-                <FileText className="w-8 h-8 text-white" />
-              </div>
-              <h3 className="text-xl font-bold mb-4 font-poppins">Instant Reports</h3>
-              <p className="text-beige-600">Professional PDF reports generated and delivered immediately when responses are submitted - no waiting required.</p>
-            </div>
-
-            <div className="bg-white p-8 rounded-2xl shadow-lg">
-              <div className="w-16 h-16 bg-secondary rounded-2xl flex items-center justify-center mb-6">
-                <BarChart3 className="w-8 h-8 text-white" />
-              </div>
-              <h3 className="text-xl font-bold mb-4 font-poppins">Real-Time Processing</h3>
-              <p className="text-beige-600">Test your entire feedback workflow from survey creation to report delivery in minutes, not days.</p>
-            </div>
+          {/* Progress Bar */}
+          <div className="w-full bg-beige-200 rounded-full h-2">
+            <div 
+              className="bg-primary h-2 rounded-full transition-all duration-300"
+              style={{ width: `${progress}%` }}
+            ></div>
           </div>
-        </div>
-      </section>
-
-      {/* How It Works */}
-      <section id="how-it-works" className="py-32 bg-beige-100">
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="text-center mb-20">
-            <span className="text-primary text-sm uppercase tracking-wider font-bold">SIMPLE PROCESS</span>
-            <h2 className="text-4xl md:text-5xl font-bold mt-4 mb-6 font-poppins">How It Works</h2>
-            <p className="text-beige-600 max-w-2xl mx-auto text-lg">
-              From setup to insights in just a few simple steps.
-            </p>
-          </div>
-
-          <div className="grid md:grid-cols-4 gap-8">
-            <div className="text-center">
-              <div className="w-16 h-16 bg-primary rounded-full flex items-center justify-center text-white font-bold text-xl mx-auto mb-6">
-                1
-              </div>
-              <h3 className="text-xl font-bold mb-4 font-poppins">Create Survey</h3>
-              <p className="text-beige-600">Enter your details, customize questions if needed, and create your test survey in minutes.</p>
-            </div>
-
-            <div className="text-center">
-              <div className="w-16 h-16 bg-primary rounded-full flex items-center justify-center text-white font-bold text-xl mx-auto mb-6">
-                2
-              </div>
-              <h3 className="text-xl font-bold mb-4 font-poppins">Share Link</h3>
-              <p className="text-beige-600">Get a unique survey link to share with your team via email, Slack, or any communication channel.</p>
-            </div>
-
-            <div className="text-center">
-              <div className="w-16 h-16 bg-primary rounded-full flex items-center justify-center text-white font-bold text-xl mx-auto mb-6">
-                3
-              </div>
-              <h3 className="text-xl font-bold mb-4 font-poppins">Team Responds</h3>
-              <p className="text-beige-600">Your team provides anonymous feedback using our secure, mobile-friendly survey platform.</p>
-            </div>
-
-            <div className="text-center">
-              <div className="w-16 h-16 bg-primary rounded-full flex items-center justify-center text-white font-bold text-xl mx-auto mb-6">
-                4
-              </div>
-              <h3 className="text-xl font-bold mb-4 font-poppins">Instant Report</h3>
-              <p className="text-beige-600">Receive a professional PDF report with insights and recommendations immediately in your inbox.</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Features Section */}
-      <section className="py-32">
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="text-center mb-20">
-            <span className="text-primary text-sm uppercase tracking-wider font-bold">FEATURES</span>
-            <h2 className="text-4xl md:text-5xl font-bold mt-4 mb-6 font-poppins">Everything You Need for Testing</h2>
-          </div>
-
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-            <div className="bg-white p-6 rounded-xl shadow-lg">
-              <CheckCircle className="w-8 h-8 text-primary mb-4" />
-              <h3 className="text-lg font-bold mb-2">Quick Expiry</h3>
-              <p className="text-beige-600 text-sm">1-minute expiry window perfect for rapid testing and validation.</p>
-            </div>
-
-            <div className="bg-white p-6 rounded-xl shadow-lg">
-              <CheckCircle className="w-8 h-8 text-primary mb-4" />
-              <h3 className="text-lg font-bold mb-2">Instant Processing</h3>
-              <p className="text-beige-600 text-sm">Reports generated and delivered immediately when responses are submitted.</p>
-            </div>
-
-            <div className="bg-white p-6 rounded-xl shadow-lg">
-              <CheckCircle className="w-8 h-8 text-primary mb-4" />
-              <h3 className="text-lg font-bold mb-2">Professional Reports</h3>
-              <p className="text-beige-600 text-sm">Beautifully formatted PDF reports with comprehensive analytics.</p>
-            </div>
-
-            <div className="bg-white p-6 rounded-xl shadow-lg">
-              <CheckCircle className="w-8 h-8 text-primary mb-4" />
-              <h3 className="text-lg font-bold mb-2">Anonymous Feedback</h3>
-              <p className="text-beige-600 text-sm">Complete anonymity for honest, valuable feedback from your team.</p>
-            </div>
-
-            <div className="bg-white p-6 rounded-xl shadow-lg">
-              <CheckCircle className="w-8 h-8 text-primary mb-4" />
-              <h3 className="text-lg font-bold mb-2">Mobile Optimized</h3>
-              <p className="text-beige-600 text-sm">Perfect experience on any device - desktop, tablet, or mobile.</p>
-            </div>
-
-            <div className="bg-white p-6 rounded-xl shadow-lg">
-              <CheckCircle className="w-8 h-8 text-primary mb-4" />
-              <h3 className="text-lg font-bold mb-2">Secure & Private</h3>
-              <p className="text-beige-600 text-sm">Enterprise-grade security with complete respondent anonymity.</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* CTA Section */}
-      <section className="py-32 bg-beige-100">
-        <div className="max-w-4xl mx-auto px-6 text-center">
-          <h2 className="text-4xl md:text-5xl font-bold mb-8 font-poppins">
-            Ready to Test Your Feedback System?
-          </h2>
-          <p className="text-xl text-beige-600 mb-12">
-            Create a test survey and see how our instant processing works in real-time.
+          <p className="text-sm text-beige-500 mt-2">
+            {showComments 
+              ? 'Comments (Optional)' 
+              : showOpenText 
+                ? 'Leadership Feedback Question'
+                : `Question ${currentQuestion + 1} of ${likertQuestions.length}`
+            }
           </p>
-          <div className="space-y-6">
-            <a 
-              href="/surveytest/create"
-              className="bg-gradient-to-br from-primary to-secondary text-white px-12 py-6 rounded-full font-bold text-lg hover:shadow-lg transition inline-flex items-center border-2 border-white"
-            >
-              Create Your Test Survey
-              <ArrowRight className="ml-3 w-5 h-5" />
-            </a>
-            <p className="text-sm text-beige-500">
-              No logins. No fuss. Just brutally honest feedback.
-            </p>
-          </div>
         </div>
-      </section>
+      </div>
 
-      <footer className="py-12 border-t border-beige-200">
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="grid md:grid-cols-2 gap-8">
-            <div>
-              <h4 className="text-2xl font-bold gradient-text mb-4 font-poppins">Cultivated HQ</h4>
-              <p className="text-beige-600">Survey Test - Instant Feedback Platform</p>
-              <a href="mailto:chloe@cultivatedhq.com.au" className="text-primary hover:text-secondary transition">
-                chloe@cultivatedhq.com.au
-              </a>
+      <div className="max-w-4xl mx-auto px-6 py-12">
+        {!showOpenText && !showComments ? (
+          // Likert Scale Questions (1-10)
+          <div className="bg-white rounded-2xl p-8 shadow-lg">
+            <h2 className="text-xl font-semibold mb-8 text-center">
+              {likertQuestions[currentQuestion]}
+            </h2>
+
+            <div className="space-y-4">
+              {scaleLabels.map((label, index) => (
+                <label 
+                  key={index}
+                  className={`flex items-center p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                    responses[currentQuestion] === getScaleValue(index)
+                      ? 'border-primary bg-primary/10'
+                      : 'border-beige-200 hover:border-primary/50'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name={`question-${currentQuestion}`}
+                    value={getScaleValue(index)}
+                    checked={responses[currentQuestion] === getScaleValue(index)}
+                    onChange={() => updateResponse(currentQuestion, getScaleValue(index))}
+                    className="sr-only"
+                  />
+                  <div className={`w-5 h-5 rounded-full border-2 mr-4 flex items-center justify-center ${
+                    responses[currentQuestion] === getScaleValue(index)
+                      ? 'border-primary bg-primary'
+                      : 'border-beige-300'
+                  }`}>
+                    {responses[currentQuestion] === getScaleValue(index) && (
+                      <div className="w-2 h-2 rounded-full bg-white"></div>
+                    )}
+                  </div>
+                  <span className="flex-1">{label}</span>
+                  <span className="text-sm text-beige-500 ml-4">{getScaleValue(index)}</span>
+                </label>
+              ))}
             </div>
-            <div className="text-right">
-              <p className="text-beige-600">© 2024 All rights reserved.</p>
+
+            <div className="flex justify-between mt-8">
+              <button
+                onClick={prevQuestion}
+                disabled={currentQuestion === 0}
+                className={`flex items-center px-6 py-3 rounded-full font-medium transition ${
+                  currentQuestion === 0
+                    ? 'text-beige-400 cursor-not-allowed'
+                    : 'text-primary hover:bg-primary hover:text-white border border-primary'
+                }`}
+              >
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Previous
+              </button>
+
+              <button
+                onClick={nextQuestion}
+                disabled={responses[currentQuestion] === 0}
+                className={`flex items-center px-6 py-3 rounded-full font-medium transition ${
+                  responses[currentQuestion] === 0
+                    ? 'bg-beige-200 text-beige-400 cursor-not-allowed'
+                    : 'bg-primary text-white hover:bg-secondary'
+                }`}
+              >
+                {isLastLikertQuestion 
+                  ? (openTextQuestion ? 'Continue to Leadership Question' : 'Continue to Comments')
+                  : 'Next'
+                }
+                <ArrowRight className="w-4 h-4 ml-2" />
+              </button>
             </div>
           </div>
+        ) : showOpenText ? (
+          // Open Text Question (11th question)
+          <div className="bg-white rounded-2xl p-8 shadow-lg">
+            <h2 className="text-xl font-semibold mb-6 text-center">
+              Leadership Feedback
+            </h2>
+            
+            <div className="bg-primary/5 p-6 rounded-lg mb-6">
+              <div className="whitespace-pre-line text-lg leading-relaxed">
+                {openTextQuestion}
+              </div>
+            </div>
+
+            <textarea
+              value={openTextResponse}
+              onChange={(e) => setOpenTextResponse(e.target.value)}
+              className="w-full p-4 border border-beige-200 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+              rows={8}
+              placeholder="Share your thoughts here... You can answer one, two, or all three areas."
+            />
+
+            <div className="flex justify-between mt-8">
+              <button
+                onClick={prevQuestion}
+                className="flex items-center px-6 py-3 rounded-full font-medium text-primary hover:bg-primary hover:text-white border border-primary transition"
+              >
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Back to Questions
+              </button>
+
+              <button
+                onClick={continueToComments}
+                className="flex items-center px-6 py-3 rounded-full font-medium bg-primary text-white hover:bg-secondary transition"
+              >
+                Continue to Comments
+                <ArrowRight className="w-4 h-4 ml-2" />
+              </button>
+            </div>
+          </div>
+        ) : (
+          // Comments section
+          <div className="bg-white rounded-2xl p-8 shadow-lg">
+            <h2 className="text-xl font-semibold mb-6 text-center">
+              Additional Comments (Optional)
+            </h2>
+            <p className="text-beige-600 text-center mb-8">
+              Share any additional thoughts or specific examples that might help with leadership development.
+            </p>
+
+            <textarea
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              className="w-full p-4 border border-beige-200 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+              rows={6}
+              placeholder="Your comments remain completely anonymous..."
+            />
+
+            <div className="flex justify-between mt-8">
+              <button
+                onClick={prevQuestion}
+                className="flex items-center px-6 py-3 rounded-full font-medium text-primary hover:bg-primary hover:text-white border border-primary transition"
+              >
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Back
+              </button>
+
+              <button
+                onClick={submitSurvey}
+                disabled={submitting}
+                className={`flex items-center px-8 py-3 rounded-full font-medium transition ${
+                  submitting
+                    ? 'bg-beige-200 text-beige-400 cursor-not-allowed'
+                    : 'bg-primary text-white hover:bg-secondary'
+                }`}
+              >
+                {submitting ? 'Submitting...' : 'Submit Feedback'}
+                {!submitting && <ArrowRight className="w-4 h-4 ml-2" />}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Privacy Notice */}
+        <div className="mt-8 text-center">
+          <div className="inline-flex items-center px-4 py-2 bg-white rounded-full shadow-sm">
+            <Shield className="w-4 h-4 text-primary mr-2" />
+            <span className="text-sm text-beige-600">
+              Your responses are completely anonymous and secure
+            </span>
+          </div>
         </div>
-      </footer>
+      </div>
     </div>
   );
 }
 
-export default SurveyTest;
+export default PulseCheckSurvey;

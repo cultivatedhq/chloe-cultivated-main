@@ -1,21 +1,15 @@
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
-
-export default defineConfig({
-  plugins: [react()],
-  optimizeDeps: {
-    exclude: ['lucide-react']
+{
+  "name": "test-pdf-report",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
-  server: {
-    fs: {
-      strict: true
-    },
-    middlewareMode: false
-  },
-  build: {
-    modulePreload: true,
-    target: 'esnext',
-    minify: 'esbuild',
-    rollupOptions: {}
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.50.5"
   }
-});
+}

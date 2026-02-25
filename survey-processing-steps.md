@@ -1,350 +1,315 @@
-# Bolt Workflow Implementation Guide
+# Survey Data Calculation Examples
 
-## Complete Setup Instructions
+## JavaScript Logic for Processing Survey Data
 
-### Step 1: Create Scheduled Trigger
-1. Open Bolt and click "Create New Workflow"
-2. Name: "Process Expired Leadership Surveys"
-3. Description: "Automatically process expired surveys and send PDF reports"
-4. Trigger Type: Scheduled
-5. Schedule: `0 8 * * *` (Daily at 8:00 AM)
-
-### Step 2: Get Expired Surveys
-**Block Type:** Supabase SQL Query
-**Name:** "Get Expired Surveys"
-**Query:**
-```sql
-SELECT * FROM session_expiration_status 
-WHERE status = 'expired_pending'
-ORDER BY expires_at ASC;
-```
-**Output Variable:** `surveys`
-
-### Step 3: For Each Survey Loop
-**Block Type:** For Each
-**Name:** "Process Each Survey"
-**Input:** `surveys`
-**Alias:** `survey`
-
-### Step 4: Get Complete Survey Analysis (Inside Loop)
-**Block Type:** Supabase SQL Query
-**Name:** "Get Complete Survey Analysis"
-**Query:**
-```sql
-SELECT * FROM get_complete_survey_analysis('{{ survey.id }}');
-```
-**Output Variable:** `analysis`
-
-### Step 5: Process Data for Template (Inside Loop)
-**Block Type:** Logic/JavaScript
-**Name:** "Process Data for Template"
-**Code:**
+### 1. Calculate Average Score for Each Question
 ```javascript
-// Extract and format data from the analysis
-const analysisData = analysis[0];
-const sessionData = analysisData.session_data;
-const responseCount = analysisData.response_count;
-const questionAnalytics = analysisData.question_analytics || [];
-const overallMetrics = analysisData.overall_metrics || {};
-const commentsData = analysisData.comments_data || [];
-
-// Calculate scale max
-const scaleMax = sessionData.scale_type === 'likert_7' ? 7 : 5;
-
-// Process question analytics
-const questionAverages = questionAnalytics.map(q => q.average_score || 0);
-const questionMedians = questionAnalytics.map(q => q.median_score || 0);
-const responseDistributions = questionAnalytics.map(q => {
-  const dist = q.distribution || {};
-  const result = [];
-  for (let i = 1; i <= scaleMax; i++) {
-    result.push(dist[i.toString()] || 0);
+function calculateQuestionAverages(responses, questionCount, scaleMax) {
+  const questionAverages = [];
+  
+  for (let questionIndex = 0; questionIndex < questionCount; questionIndex++) {
+    const questionResponses = responses
+      .map(response => response.responses[questionIndex])
+      .filter(value => value > 0 && value <= scaleMax);
+    
+    if (questionResponses.length > 0) {
+      const sum = questionResponses.reduce((total, value) => total + value, 0);
+      const average = sum / questionResponses.length;
+      questionAverages.push(Math.round(average * 100) / 100); // Round to 2 decimal places
+    } else {
+      questionAverages.push(0);
+    }
   }
-  return result;
-});
-
-// Extract comments
-const comments = commentsData.map(c => c.comment || '').filter(c => c.length > 0);
-
-// Calculate overall percentage
-const overallAverage = overallMetrics.overall_average || 0;
-const overallPercentage = Math.round((overallAverage / scaleMax) * 100);
-
-// Get strongest and weakest areas
-const strongestIndex = overallMetrics.strongest_question_index || 0;
-const weakestIndex = overallMetrics.weakest_question_index || 0;
-const strongestArea = sessionData.questions[strongestIndex] || 'N/A';
-const weakestArea = sessionData.questions[weakestIndex] || 'N/A';
-
-// Create template data object
-const templateData = {
-  survey: {
-    ...sessionData,
-    scale_max: scaleMax
-  },
-  analytics: {
-    total_responses: responseCount,
-    question_averages: questionAverages,
-    question_medians: questionMedians,
-    response_distributions: responseDistributions,
-    overall_average: overallAverage,
-    overall_percentage: overallPercentage,
-    strongest_area: strongestArea,
-    strongest_score: overallMetrics.strongest_score || 0,
-    weakest_area: weakestArea,
-    weakest_score: overallMetrics.weakest_score || 0,
-    comments: comments,
-    comment_count: comments.length,
-    performance_category: overallMetrics.performance_category || 'needs_improvement'
-  },
-  processed_at: new Date().toISOString()
-};
-
-console.log('Template data prepared:', templateData);
-return templateData;
-```
-**Output Variable:** `templateData`
-
-### Step 6: Build Report HTML (Inside Loop)
-**Block Type:** Set Variable
-**Variable Name:** `report_html`
-**Value:** Copy the complete HTML template from `logic/survey-report-html-template.html`
-
-### Step 7: Check if Survey Has Responses (Inside Loop)
-**Block Type:** Conditional Logic
-**Name:** "Check if Survey Has Responses"
-**Condition:** `{{ templateData.analytics.total_responses > 0 }}`
-
-### Step 8A: Generate PDF (TRUE Branch)
-**Block Type:** HTTP Request
-**Name:** "Generate PDF with PDF.co"
-**Method:** POST
-**URL:** `https://api.pdf.co/v1/pdf/convert/from/html`
-**Headers:**
-```json
-{
-  "x-api-key": "cbjames674@gmail.com_C8Qxi0EeYZPsuFleKhRErEynYQ12d16f2TttcgYaMpKOtP3aHlBHTNvG64EynWbR",
-  "Content-Type": "application/json"
+  
+  return questionAverages;
 }
 ```
-**Body:**
-```json
-{
-  "html": "{{ report_html }}",
-  "name": "Leadership-Report-{{ templateData.survey.manager_name }}-{{ new Date().toISOString().split('T')[0] }}.pdf",
-  "async": false,
-  "margins": "20px",
-  "paperSize": "A4",
-  "orientation": "Portrait",
-  "printBackground": true,
-  "mediaType": "print"
-}
-```
-**Output Variable:** `pdf_response`
 
-### Step 9A: Send Report Email (TRUE Branch)
-**Block Type:** Email
-**Name:** "Send PDF Report Email"
-**To:** `{{ templateData.survey.manager_email }}`
-**CC:** `chloe@cultivatedhq.com.au`
-**Subject:** `Your Leadership Feedback Report is Ready: {{ templateData.survey.title }}`
-**Body:**
-```html
-<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-  <h2 style="color: #2a9d8f;">Your Leadership Feedback Report is Ready!</h2>
-  <p>Hi {{ templateData.survey.manager_name }},</p>
-  <p>Your team's leadership feedback report is now ready! 🎉</p>
-  
-  <div style="background: #f5f5f0; padding: 20px; border-radius: 10px; margin: 20px 0; border-left: 4px solid #2a9d8f;">
-    <h3 style="margin-top: 0;">📊 Survey Summary:</h3>
-    <ul>
-      <li><strong>Total Responses:</strong> {{ templateData.analytics.total_responses }}</li>
-      <li><strong>Overall Leadership Score:</strong> {{ templateData.analytics.overall_percentage }}%</li>
-      <li><strong>Survey Period:</strong> {{ new Date(templateData.survey.created_at).toLocaleDateString() }} - {{ new Date(templateData.survey.expires_at).toLocaleDateString() }}</li>
-      <li><strong>Anonymous Comments:</strong> {{ templateData.analytics.comment_count }}</li>
-    </ul>
-  </div>
-
-  <div style="text-align: center; margin: 30px 0;">
-    <a href="{{ pdf_response.url }}" style="background: #2a9d8f; color: white; padding: 15px 30px; text-decoration: none; border-radius: 25px; font-weight: bold;">📄 Download Your Report</a>
-  </div>
-
-  <div style="background: #e8f5f3; padding: 20px; border-radius: 10px; margin: 20px 0;">
-    <h3 style="margin-top: 0; color: #2a9d8f;">📋 Your Report Includes:</h3>
-    <ul>
-      <li>Statistical analysis of all responses</li>
-      <li>Visual performance metrics and charts</li>
-      <li>Anonymous comments from your team</li>
-      <li>Personalized leadership development recommendations</li>
-      <li>Strengths and development opportunities</li>
-      <li>Actionable next steps for improvement</li>
-    </ul>
-  </div>
-  
-  <h3>🎯 Next Steps:</h3>
-  <ol>
-    <li><strong>Review your detailed feedback report</strong></li>
-    <li><strong>Identify key development areas</strong></li>
-    <li><strong>Consider scheduling follow-up conversations with your team</strong></li>
-    <li><strong>Create an action plan for improvement</strong></li>
-    <li><strong>Schedule regular check-ins for ongoing feedback</strong></li>
-  </ol>
-
-  <p>If you have any questions about your results or would like support interpreting your feedback and creating a development plan, I'm here to help.</p>
-  
-  <p>Thank you for investing in your leadership development!</p>
-  
-  <p>Best regards,<br>
-  <strong>Chloe James</strong><br>
-  Cultivated HQ<br>
-  <a href="mailto:chloe@cultivatedhq.com.au" style="color: #2a9d8f;">chloe@cultivatedhq.com.au</a></p>
-  
-  <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
-  <p style="font-size: 12px; color: #666;">
-    This report contains confidential leadership feedback. Please handle with appropriate discretion.<br>
-    Questions about your report? Reply to this email or visit <a href="https://www.cultivatedhq.com.au" style="color: #2a9d8f;">cultivatedhq.com.au</a>
-  </p>
-</div>
-```
-
-### Step 8B: Send No Responses Email (FALSE Branch)
-**Block Type:** Email
-**Name:** "Send No Responses Email"
-**To:** `{{ templateData.survey.manager_email }}`
-**CC:** `chloe@cultivatedhq.com.au`
-**Subject:** `Survey Closed: {{ templateData.survey.title }}`
-**Body:**
-```html
-<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-  <h2 style="color: #2a9d8f;">Survey Period Complete</h2>
-  <p>Hi {{ templateData.survey.manager_name }},</p>
-  <p>Your 3-day feedback survey period has ended.</p>
-  
-  <div style="background: #f5f5f0; padding: 20px; border-radius: 10px; margin: 20px 0; border-left: 4px solid #f39c12;">
-    <h3 style="margin-top: 0;">📊 Survey Summary:</h3>
-    <ul>
-      <li><strong>Session:</strong> {{ templateData.survey.title }}</li>
-      <li><strong>Total Responses:</strong> 0</li>
-      <li><strong>Status:</strong> Closed (No responses received)</li>
-    </ul>
-  </div>
-
-  <div style="background: #fff3cd; padding: 20px; border-radius: 10px; margin: 20px 0; border-left: 4px solid #f39c12;">
-    <h3 style="margin-top: 0; color: #856404;">💡 Tips for Future Surveys:</h3>
-    <ul>
-      <li>Send personal invitations to team members</li>
-      <li>Explain the purpose and benefits of the feedback</li>
-      <li>Emphasize the anonymous nature of responses</li>
-      <li>Follow up with reminders during the 3-day window</li>
-      <li>Consider the timing - avoid busy periods</li>
-      <li>Share the survey link in team meetings</li>
-    </ul>
-  </div>
-  
-  <p>Would you like to create another survey? I'm here to help you gather valuable feedback from your team.</p>
-  
-  <div style="text-align: center; margin: 30px 0;">
-    <a href="https://www.cultivatedhq.com.au/pulsecheck/create" style="background: #2a9d8f; color: white; padding: 15px 30px; text-decoration: none; border-radius: 25px; font-weight: bold;">Create New Survey</a>
-  </div>
-  
-  <p>Best regards,<br>
-  <strong>Chloe James</strong><br>
-  Cultivated HQ<br>
-  <a href="mailto:chloe@cultivatedhq.com.au" style="color: #2a9d8f;">chloe@cultivatedhq.com.au</a></p>
-</div>
-```
-
-### Step 10: Mark Survey as Processed (Both Branches)
-**Block Type:** Supabase SQL Query
-**Name:** "Mark Survey as Processed"
-**Query:**
-```sql
-SELECT process_survey_completion('{{ survey.id }}');
-```
-
-### Step 11: Log Processing Result (Both Branches)
-**Block Type:** Logic/JavaScript
-**Name:** "Log Processing Result"
-**Code:**
+### 2. Calculate Median for Each Question
 ```javascript
-console.log(`✅ Successfully processed survey: ${templateData.survey.title}`);
-console.log(`📊 Responses: ${templateData.analytics.total_responses}`);
-console.log(`📧 Email sent to: ${templateData.survey.manager_email}`);
-console.log(`⏰ Processed at: ${new Date().toISOString()}`);
-
-return {
-  survey_id: templateData.survey.id,
-  survey_title: templateData.survey.title,
-  response_count: templateData.analytics.total_responses,
-  status: 'processed',
-  processed_at: new Date().toISOString()
-};
+function calculateQuestionMedians(responses, questionCount, scaleMax) {
+  const questionMedians = [];
+  
+  for (let questionIndex = 0; questionIndex < questionCount; questionIndex++) {
+    const questionResponses = responses
+      .map(response => response.responses[questionIndex])
+      .filter(value => value > 0 && value <= scaleMax)
+      .sort((a, b) => a - b);
+    
+    if (questionResponses.length > 0) {
+      const middle = Math.floor(questionResponses.length / 2);
+      let median;
+      
+      if (questionResponses.length % 2 === 0) {
+        // Even number of responses - average of two middle values
+        median = (questionResponses[middle - 1] + questionResponses[middle]) / 2;
+      } else {
+        // Odd number of responses - middle value
+        median = questionResponses[middle];
+      }
+      
+      questionMedians.push(Math.round(median * 10) / 10); // Round to 1 decimal place
+    } else {
+      questionMedians.push(0);
+    }
+  }
+  
+  return questionMedians;
+}
 ```
 
-## Testing the Workflow
+### 3. Calculate Response Distribution
+```javascript
+function calculateResponseDistribution(responses, questionCount, scaleMax) {
+  const distributions = [];
+  
+  for (let questionIndex = 0; questionIndex < questionCount; questionIndex++) {
+    const distribution = {};
+    
+    // Initialize distribution object with all possible values
+    for (let i = 1; i <= scaleMax; i++) {
+      distribution[i] = 0;
+    }
+    
+    // Count responses for this question
+    responses.forEach(response => {
+      const value = response.responses[questionIndex];
+      if (value > 0 && value <= scaleMax) {
+        distribution[value]++;
+      }
+    });
+    
+    distributions.push(distribution);
+  }
+  
+  return distributions;
+}
+```
 
-### Test Procedure
-1. Create a test survey with a past expiration date
-2. Add some test responses
-3. Manually trigger the workflow
-4. Verify email delivery and database updates
+### 4. Find Strongest and Weakest Questions
+```javascript
+function findStrongestAndWeakest(questionAverages, questions) {
+  const validAverages = questionAverages
+    .map((avg, index) => ({ average: avg, index, question: questions[index] }))
+    .filter(item => item.average > 0);
+  
+  if (validAverages.length === 0) {
+    return {
+      strongest: { question: 'N/A', score: 0, index: -1 },
+      weakest: { question: 'N/A', score: 0, index: -1 }
+    };
+  }
+  
+  const strongest = validAverages.reduce((max, current) => 
+    current.average > max.average ? current : max
+  );
+  
+  const weakest = validAverages.reduce((min, current) => 
+    current.average < min.average ? current : min
+  );
+  
+  return {
+    strongest: {
+      question: strongest.question,
+      score: strongest.average,
+      index: strongest.index
+    },
+    weakest: {
+      question: weakest.question,
+      score: weakest.average,
+      index: weakest.index
+    }
+  };
+}
+```
 
-### Validation Queries
+### 5. Calculate Overall Performance
+```javascript
+function calculateOverallPerformance(questionAverages, scaleMax) {
+  const validAverages = questionAverages.filter(avg => avg > 0);
+  
+  if (validAverages.length === 0) {
+    return {
+      overallAverage: 0,
+      percentage: 0,
+      category: 'no_data'
+    };
+  }
+  
+  const overallAverage = validAverages.reduce((sum, avg) => sum + avg, 0) / validAverages.length;
+  const percentage = Math.round((overallAverage / scaleMax) * 100);
+  
+  let category = 'needs_improvement';
+  if (percentage >= 80) category = 'excellent';
+  else if (percentage >= 60) category = 'good';
+  else if (percentage >= 40) category = 'fair';
+  
+  return {
+    overallAverage: Math.round(overallAverage * 100) / 100,
+    percentage,
+    category
+  };
+}
+```
+
+### 6. Process Comments
+```javascript
+function processComments(responses) {
+  const comments = responses
+    .map(response => response.comment)
+    .filter(comment => comment && comment.trim().length > 0)
+    .map(comment => comment.trim());
+  
+  return {
+    comments,
+    count: comments.length
+  };
+}
+```
+
+### 7. Complete Processing Function
+```javascript
+function processeSurveyData(survey, responses) {
+  const questionCount = survey.questions.length;
+  const scaleMax = survey.scale_type === 'likert_7' ? 7 : 5;
+  
+  // Calculate all metrics
+  const questionAverages = calculateQuestionAverages(responses, questionCount, scaleMax);
+  const questionMedians = calculateQuestionMedians(responses, questionCount, scaleMax);
+  const distributions = calculateResponseDistribution(responses, questionCount, scaleMax);
+  const strongestWeakest = findStrongestAndWeakest(questionAverages, survey.questions);
+  const overallPerformance = calculateOverallPerformance(questionAverages, scaleMax);
+  const commentsData = processComments(responses);
+  
+  // Create comprehensive report data
+  const reportData = {
+    session: {
+      id: survey.id,
+      title: survey.title,
+      manager_name: survey.manager_name,
+      manager_email: survey.manager_email,
+      questions: survey.questions,
+      scale_type: survey.scale_type,
+      scale_max: scaleMax,
+      created_at: survey.created_at,
+      expires_at: survey.expires_at,
+      description: survey.description
+    },
+    analytics: {
+      total_responses: responses.length,
+      question_averages: questionAverages,
+      question_medians: questionMedians,
+      response_distributions: distributions,
+      overall_average: overallPerformance.overallAverage,
+      overall_percentage: overallPerformance.percentage,
+      performance_category: overallPerformance.category,
+      strongest_area: strongestWeakest.strongest.question,
+      strongest_score: strongestWeakest.strongest.score,
+      strongest_index: strongestWeakest.strongest.index,
+      weakest_area: strongestWeakest.weakest.question,
+      weakest_score: strongestWeakest.weakest.score,
+      weakest_index: strongestWeakest.weakest.index,
+      comments: commentsData.comments,
+      comment_count: commentsData.count
+    },
+    processing: {
+      processed_at: new Date().toISOString(),
+      status: responses.length > 0 ? 'ready_for_report' : 'no_responses'
+    }
+  };
+  
+  return reportData;
+}
+```
+
+### 8. Usage Example in Bolt
+```javascript
+// Inside the "For Each" loop for processing surveys
+const processedData = processeSurveyData(survey, responses);
+
+// Log processing results
+console.log(`Processing survey: ${survey.title}`);
+console.log(`Responses: ${processedData.analytics.total_responses}`);
+console.log(`Overall score: ${processedData.analytics.overall_percentage}%`);
+console.log(`Strongest area: ${processedData.analytics.strongest_area}`);
+console.log(`Development area: ${processedData.analytics.weakest_area}`);
+
+// Return processed data for next steps
+return processedData;
+```
+
+## SQL Alternative for Complex Calculations
+
+If you prefer to do calculations in SQL rather than JavaScript:
+
+### Calculate All Metrics in One Query
 ```sql
--- Check surveys that should be processed
-SELECT id, title, expires_at, report_sent 
-FROM feedback_sessions 
-WHERE expires_at <= NOW() AND report_sent = false;
-
--- Verify processing results
-SELECT id, title, report_sent, report_sent_at 
-FROM feedback_sessions 
-WHERE report_sent = true 
-ORDER BY report_sent_at DESC;
+WITH survey_analysis AS (
+  SELECT 
+    fs.id,
+    fs.title,
+    fs.manager_name,
+    fs.manager_email,
+    fs.questions,
+    fs.scale_type,
+    CASE WHEN fs.scale_type = 'likert_7' THEN 7 ELSE 5 END as scale_max,
+    COUNT(fr.id) as total_responses,
+    
+    -- Calculate averages for each question position
+    ARRAY(
+      SELECT ROUND(AVG((response_val::text)::numeric), 2)
+      FROM (
+        SELECT 
+          jsonb_array_elements(fr_inner.responses) as response_val,
+          row_number() OVER () as pos
+        FROM feedback_responses fr_inner
+        WHERE fr_inner.session_id = fs.id
+      ) expanded
+      WHERE pos = question_pos
+        AND (response_val::text)::numeric > 0
+        AND (response_val::text)::numeric <= CASE WHEN fs.scale_type = 'likert_7' THEN 7 ELSE 5 END
+      GROUP BY question_pos
+      ORDER BY question_pos
+    ) as question_averages,
+    
+    -- Get all comments
+    ARRAY(
+      SELECT fr.comment
+      FROM feedback_responses fr
+      WHERE fr.session_id = fs.id
+        AND fr.comment IS NOT NULL
+        AND TRIM(fr.comment) != ''
+      ORDER BY fr.submitted_at
+    ) as comments
+    
+  FROM feedback_sessions fs
+  LEFT JOIN feedback_responses fr ON fs.id = fr.session_id
+  CROSS JOIN generate_series(1, jsonb_array_length(fs.questions)) as question_pos
+  WHERE fs.id = $1
+  GROUP BY fs.id, fs.title, fs.manager_name, fs.manager_email, fs.questions, fs.scale_type
+)
+SELECT 
+  *,
+  -- Overall average
+  (
+    SELECT ROUND(AVG(avg_val), 2)
+    FROM unnest(question_averages) as avg_val
+    WHERE avg_val > 0
+  ) as overall_average,
+  
+  -- Performance percentage
+  ROUND(
+    (
+      SELECT AVG(avg_val)
+      FROM unnest(question_averages) as avg_val
+      WHERE avg_val > 0
+    ) / scale_max * 100
+  ) as performance_percentage,
+  
+  -- Comment count
+  array_length(comments, 1) as comment_count
+  
+FROM survey_analysis;
 ```
 
-## Troubleshooting
-
-### Common Issues and Solutions
-
-#### PDF Generation Fails
-- Check PDF.co API key is correct
-- Verify HTML template syntax
-- Check API usage limits
-- Review error logs
-
-#### Emails Not Sending
-- Verify email service configuration
-- Check recipient email addresses
-- Review spam/bounce reports
-- Validate email templates
-
-#### Database Errors
-- Ensure migration is applied
-- Check function permissions
-- Verify data integrity
-- Review query syntax
-
-## Monitoring and Maintenance
-
-### Daily Checks
-- Review Bolt workflow logs
-- Verify email delivery
-- Check PDF.co usage
-- Monitor database performance
-
-### Weekly Reviews
-- Analyze success rates
-- Review error patterns
-- Check client feedback
-- Optimize performance
-
-## Expected Results
-
-Once deployed, your system will:
-- **Daily automated processing** of expired surveys
-- **Professional PDF reports** generated and delivered
-- **Email notifications** sent to managers
-- **Database updates** marking surveys as processed
-- **Comprehensive logging** for monitoring
-- **Zero manual intervention** required
+This provides you with both JavaScript and SQL approaches for implementing the survey processing logic in Bolt!

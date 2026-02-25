@@ -1,389 +1,236 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { Download, BarChart3, Users, MessageCircle, TrendingUp, ArrowLeft, FileText, Lock, LogIn } from 'lucide-react';
-import { supabase, FeedbackSession, FeedbackResponse } from '../../lib/supabase';
-import { processResponseData, downloadPDFReport, ProcessedReportData } from '../../lib/pdfGenerator';
+import React from 'react';
+import { ArrowRight, BarChart3, Shield, Users, FileText, Mail, Sparkles, CheckCircle } from 'lucide-react';
 
-function SurveyTestResults() {
-  const { sessionId } = useParams();
-  const navigate = useNavigate();
-  const [session, setSession] = useState<FeedbackSession | null>(null);
-  const [responses, setResponses] = useState<FeedbackResponse[]>([]);
-  const [processedData, setProcessedData] = useState<ProcessedReportData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [generatingPDF, setGeneratingPDF] = useState(false);
-  
-  // Login state
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [password, setPassword] = useState('');
-  const [loginError, setLoginError] = useState('');
-  const ADMIN_PASSWORD = 'LeadersLearning2025';
-
-  useEffect(() => {
-    // Check if user is already authenticated (from localStorage)
-    const authStatus = localStorage.getItem('pulseCheckAdminAuth');
-    if (authStatus === 'true') {
-      setIsAuthenticated(true);
-      if (sessionId) {
-        loadSessionData();
-      }
-    } else {
-      setLoading(false);
-    }
-  }, [sessionId]);
-
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (password === ADMIN_PASSWORD) {
-      setIsAuthenticated(true);
-      localStorage.setItem('pulseCheckAdminAuth', 'true');
-      setLoginError('');
-      if (sessionId) {
-        loadSessionData();
-      }
-    } else {
-      setLoginError('Incorrect password. Please try again.');
-    }
-  };
-
-  const loadSessionData = async () => {
-    try {
-      setLoading(true);
-      // Load session
-      const { data: sessionData, error: sessionError } = await supabase
-        .from('feedback_sessions')
-        .select('*')
-        .eq('id', sessionId)
-        .single();
-
-      if (sessionError) throw sessionError;
-      if (!sessionData) {
-        setError('Session not found');
-        return;
-      }
-
-      setSession(sessionData);
-
-      // Load responses
-      const { data: responsesData, error: responsesError } = await supabase
-        .from('feedback_responses')
-        .select('*')
-        .eq('session_id', sessionId)
-        .order('submitted_at', { ascending: true });
-
-      if (responsesError) throw responsesError;
-
-      setResponses(responsesData || []);
-
-      // Process data for analytics
-      if (responsesData && responsesData.length > 0) {
-        const processed = processResponseData({
-          session: sessionData,
-          responses: responsesData
-        });
-        setProcessedData(processed);
-      }
-
-    } catch (error) {
-      console.error('Error loading session data:', error);
-      setError('Failed to load session data');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleDownloadPDF = async () => {
-    if (!processedData) return;
-
-    setGeneratingPDF(true);
-    try {
-      await downloadPDFReport(processedData);
-    } catch (error) {
-      console.error('Error generating PDF:', error);
-      alert('Failed to generate PDF report. Please try again.');
-    } finally {
-      setGeneratingPDF(false);
-    }
-  };
-
-  const getScaleLabels = () => {
-    if (session?.scale_type === 'likert_7') {
-      return ['Strongly Disagree', 'Disagree', 'Somewhat Disagree', 'Neutral', 'Somewhat Agree', 'Agree', 'Strongly Agree'];
-    }
-    return ['Strongly Disagree', 'Disagree', 'Neutral', 'Agree', 'Strongly Agree'];
-  };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-beige-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-beige-600">Loading results...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Login screen
-  if (!isAuthenticated) {
-    return (
-      <div className="min-h-screen bg-beige-50 flex items-center justify-center">
-        <div className="bg-white rounded-2xl p-8 shadow-lg max-w-md w-full">
-          <div className="text-center mb-8">
-            <div className="w-16 h-16 bg-primary rounded-full flex items-center justify-center mx-auto mb-4">
-              <Lock className="w-8 h-8 text-white" />
-            </div>
-            <h1 className="text-2xl font-bold mb-2 font-poppins">Results Access</h1>
-            <p className="text-beige-600">Enter your password to view survey results</p>
-          </div>
-          
-          <form onSubmit={handleLogin} className="space-y-6">
-            {loginError && (
-              <div className="bg-red-100 text-red-700 p-3 rounded-lg text-sm">
-                {loginError}
-              </div>
-            )}
-            
-            <div>
-              <label className="block text-sm font-medium mb-2">Password</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full p-3 border border-beige-200 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
-                placeholder="Enter admin password"
-                required
-              />
-            </div>
-            
-            <button
-              type="submit"
-              className="w-full bg-primary text-white px-6 py-3 rounded-full font-medium hover:bg-secondary transition flex items-center justify-center"
-            >
-              <LogIn className="w-5 h-5 mr-2" />
-              Access Results
-            </button>
-          </form>
-          
-          <div className="mt-6 text-center">
-            <a href="/surveytest" className="text-primary hover:text-secondary transition text-sm">
-              Return to Survey Test Home
-            </a>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (error || !session) {
-    return (
-      <div className="min-h-screen bg-beige-50 flex items-center justify-center">
-        <div className="text-center max-w-md mx-auto px-6">
-          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
-            <FileText className="w-8 h-8 text-red-600" />
-          </div>
-          <h1 className="text-2xl font-bold mb-4">Results Not Available</h1>
-          <p className="text-beige-600 mb-6">{error}</p>
-          <a 
-            href="/surveytest/admin"
-            className="bg-primary text-white px-6 py-3 rounded-full font-medium hover:bg-secondary transition"
-          >
-            Back to Admin
-          </a>
-        </div>
-      </div>
-    );
-  }
-
-  const scaleLabels = getScaleLabels();
-  const scaleMax = session.scale_type === 'likert_7' ? 7 : 5;
-
+function SurveyTest() {
   return (
     <div className="min-h-screen bg-beige-50 text-beige-800">
       {/* Navigation */}
       <nav className="bg-beige-50/95 backdrop-blur-sm shadow-sm">
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex justify-between items-center">
-            <h1 className="text-2xl font-bold gradient-text font-poppins">Test Survey Results</h1>
-            <div className="flex space-x-4 items-center">
-              <a href="/surveytest/admin" className="text-beige-500 hover:text-primary transition flex items-center">
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                Back to Admin
+            <a href="/" className="text-2xl font-bold gradient-text font-poppins">Cultivated HQ</a>
+            <div className="flex space-x-6 items-center">
+              <a href="/" className="text-beige-500 hover:text-primary transition">Home</a>
+              <a href="/surveytest/create" className="bg-primary text-beige-50 px-6 py-2 rounded-full font-medium hover:bg-secondary transition">
+                Create Survey
+              </a>
+              <a href="/surveytest/admin" className="border border-primary text-primary px-4 py-2 rounded-full font-medium hover:bg-primary hover:text-white transition">
+                Admin
               </a>
             </div>
           </div>
         </div>
       </nav>
 
-      <div className="max-w-7xl mx-auto px-6 py-12">
-        {/* Header */}
-        <div className="bg-white rounded-2xl p-8 shadow-lg mb-8">
-          <div className="flex justify-between items-start mb-6">
-            <div>
-              <h2 className="text-3xl font-bold mb-2 font-poppins">{session.title}</h2>
-              {session.description && (
-                <p className="text-beige-600 mb-4">{session.description}</p>
-              )}
-              <div className="flex items-center space-x-6 text-sm text-beige-500">
-                <div className="flex items-center">
-                  <Users className="w-4 h-4 mr-1" />
-                  {responses.length} responses
-                </div>
-                <div className="flex items-center">
-                  <MessageCircle className="w-4 h-4 mr-1" />
-                  {processedData?.analytics.comment_count || 0} comments
-                </div>
-                <div>
-                  Manager: {session.manager_name}
-                </div>
-              </div>
-            </div>
-            
-            {processedData && (
-              <button
-                onClick={handleDownloadPDF}
-                disabled={generatingPDF}
-                className={`flex items-center px-6 py-3 rounded-full font-medium transition ${
-                  generatingPDF
-                    ? 'bg-beige-200 text-beige-400 cursor-not-allowed'
-                    : 'bg-primary text-white hover:bg-secondary'
-                }`}
+      {/* Hero Section */}
+      <header className="relative py-32 grid-pattern">
+        <div className="max-w-7xl mx-auto px-6 text-center">
+          <div className="max-w-4xl mx-auto">
+            <span className="inline-flex items-center px-4 py-2 rounded-full border border-primary text-primary text-sm mb-8">
+              <Sparkles className="w-4 h-4 mr-2" />
+              Instant Feedback Testing Platform
+            </span>
+            <h1 className="text-5xl md:text-7xl font-bold mb-8 leading-tight font-poppins">
+              Survey <span className="gradient-text">Test</span>
+            </h1>
+            <p className="text-xl md:text-2xl text-beige-600 mb-12 max-w-4xl mx-auto">
+              Test anonymous feedback surveys with instant processing. Create surveys that expire in 1 minute and get professional PDF reports delivered immediately.
+            </p>
+            <div className="flex flex-col sm:flex-row items-center justify-center space-y-4 sm:space-y-0 sm:space-x-6">
+              <a 
+                href="/surveytest/create"
+                className="bg-primary text-beige-50 px-8 py-4 rounded-full font-semibold hover:bg-secondary transition flex items-center w-full sm:w-auto justify-center"
               >
-                <Download className="w-4 h-4 mr-2" />
-                {generatingPDF ? 'Generating...' : 'Download PDF'}
-              </button>
-            )}
-          </div>
-
-          {/* Summary Stats */}
-          {processedData && (
-            <div className="grid md:grid-cols-4 gap-6">
-              <div className="bg-primary/10 p-4 rounded-lg text-center">
-                <div className="text-2xl font-bold text-primary">
-                  {Math.round((processedData.analytics.overall_average / scaleMax) * 100)}%
-                </div>
-                <div className="text-sm text-beige-600">Overall Score</div>
-              </div>
-              <div className="bg-green-100 p-4 rounded-lg text-center">
-                <div className="text-2xl font-bold text-green-600">
-                  {processedData.analytics.strongest_score.toFixed(1)}
-                </div>
-                <div className="text-sm text-beige-600">Highest Score</div>
-              </div>
-              <div className="bg-orange-100 p-4 rounded-lg text-center">
-                <div className="text-2xl font-bold text-orange-600">
-                  {processedData.analytics.weakest_score.toFixed(1)}
-                </div>
-                <div className="text-sm text-beige-600">Lowest Score</div>
-              </div>
-              <div className="bg-blue-100 p-4 rounded-lg text-center">
-                <div className="text-2xl font-bold text-blue-600">
-                  {processedData.analytics.comment_count}
-                </div>
-                <div className="text-sm text-beige-600">Comments</div>
-              </div>
+                Create Test Survey
+                <ArrowRight className="ml-2 w-4 h-4" />
+              </a>
+              <a 
+                href="#how-it-works"
+                className="border-2 border-primary text-primary px-8 py-4 rounded-full font-semibold hover:bg-primary hover:text-white transition w-full sm:w-auto text-center"
+              >
+                See How It Works
+              </a>
             </div>
-          )}
+          </div>
         </div>
+      </header>
 
-        {responses.length === 0 ? (
-          <div className="bg-white rounded-2xl p-12 shadow-lg text-center">
-            <BarChart3 className="w-16 h-16 text-beige-300 mx-auto mb-4" />
-            <h3 className="text-xl font-semibold mb-2">No Responses Yet</h3>
-            <p className="text-beige-600">This survey hasn't received any responses yet.</p>
+      {/* Benefits Section */}
+      <section className="py-32">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="text-center mb-20">
+            <span className="text-primary text-sm uppercase tracking-wider font-bold">WHY SURVEY TEST</span>
+            <h2 className="text-4xl md:text-5xl font-bold mt-4 mb-6 font-poppins">Built for Rapid Testing</h2>
+            <p className="text-beige-600 max-w-3xl mx-auto text-lg">
+              Test your feedback systems quickly with instant processing and immediate report delivery.
+            </p>
           </div>
-        ) : (
-          <>
-            {/* Key Insights */}
-            {processedData && (
-              <div className="bg-white rounded-2xl p-8 shadow-lg mb-8">
-                <h3 className="text-2xl font-bold mb-6 font-poppins">Key Insights</h3>
-                <div className="grid md:grid-cols-2 gap-8">
-                  <div>
-                    <h4 className="font-bold text-green-600 mb-2">Strongest Area</h4>
-                    <p className="text-beige-700 mb-1">{processedData.analytics.strongest_area}</p>
-                    <p className="text-sm text-beige-500">Average: {processedData.analytics.strongest_score.toFixed(2)}/{scaleMax}</p>
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-orange-600 mb-2">Development Opportunity</h4>
-                    <p className="text-beige-700 mb-1">{processedData.analytics.weakest_area}</p>
-                    <p className="text-sm text-beige-500">Average: {processedData.analytics.weakest_score.toFixed(2)}/{scaleMax}</p>
-                  </div>
-                </div>
-              </div>
-            )}
 
-            {/* Question Results */}
-            <div className="bg-white rounded-2xl p-8 shadow-lg mb-8">
-              <h3 className="text-2xl font-bold mb-6 font-poppins">Question Results</h3>
-              <div className="space-y-8">
-                {session.questions.map((question, index) => {
-                  const questionResponses = responses.map(r => r.responses[index]).filter(r => r > 0);
-                  const average = questionResponses.length > 0 
-                    ? questionResponses.reduce((sum, val) => sum + val, 0) / questionResponses.length 
-                    : 0;
-                  
-                  // Calculate distribution
-                  const distribution = new Array(scaleMax).fill(0);
-                  questionResponses.forEach(response => {
-                    distribution[response - 1]++;
-                  });
-
-                  return (
-                    <div key={index} className="border-b border-beige-200 pb-6 last:border-b-0">
-                      <h4 className="font-semibold mb-4">{index + 1}. {question}</h4>
-                      
-                      <div className="grid md:grid-cols-2 gap-6">
-                        <div>
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-sm text-beige-600">Average Score</span>
-                            <span className="font-bold">{average.toFixed(2)}/{scaleMax}</span>
-                          </div>
-                          <div className="w-full bg-beige-200 rounded-full h-2">
-                            <div 
-                              className="bg-primary h-2 rounded-full transition-all duration-300"
-                              style={{ width: `${(average / scaleMax) * 100}%` }}
-                            ></div>
-                          </div>
-                        </div>
-                        
-                        <div>
-                          <span className="text-sm text-beige-600 block mb-2">Response Distribution</span>
-                          <div className="flex space-x-2">
-                            {distribution.map((count, i) => (
-                              <div key={i} className="text-center">
-                                <div className="text-xs text-beige-500">{i + 1}</div>
-                                <div className="text-sm font-medium">{count}</div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
+          <div className="grid md:grid-cols-3 gap-8">
+            <div className="bg-white p-8 rounded-2xl shadow-lg">
+              <div className="w-16 h-16 bg-orange-500 rounded-2xl flex items-center justify-center mb-6">
+                <Shield className="w-8 h-8 text-white" />
               </div>
+              <h3 className="text-xl font-bold mb-4 font-poppins">1-Minute Expiry</h3>
+              <p className="text-beige-600">Surveys automatically expire after 1 minute, perfect for quick testing and validation of your feedback systems.</p>
             </div>
 
-            {/* Comments */}
-            {processedData && processedData.analytics.comments.length > 0 && (
-              <div className="bg-white rounded-2xl p-8 shadow-lg">
-                <h3 className="text-2xl font-bold mb-6 font-poppins">Anonymous Comments</h3>
-                <div className="space-y-4">
-                  {processedData.analytics.comments.map((comment, index) => (
-                    <div key={index} className="bg-beige-50 p-4 rounded-lg border-l-4 border-primary">
-                      <p className="text-beige-700">"{comment}"</p>
-                    </div>
-                  ))}
-                </div>
+            <div className="bg-white p-8 rounded-2xl shadow-lg">
+              <div className="w-16 h-16 bg-primary rounded-2xl flex items-center justify-center mb-6">
+                <FileText className="w-8 h-8 text-white" />
               </div>
-            )}
-          </>
-        )}
-      </div>
+              <h3 className="text-xl font-bold mb-4 font-poppins">Instant Reports</h3>
+              <p className="text-beige-600">Professional PDF reports generated and delivered immediately when responses are submitted - no waiting required.</p>
+            </div>
+
+            <div className="bg-white p-8 rounded-2xl shadow-lg">
+              <div className="w-16 h-16 bg-secondary rounded-2xl flex items-center justify-center mb-6">
+                <BarChart3 className="w-8 h-8 text-white" />
+              </div>
+              <h3 className="text-xl font-bold mb-4 font-poppins">Real-Time Processing</h3>
+              <p className="text-beige-600">Test your entire feedback workflow from survey creation to report delivery in minutes, not days.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* How It Works */}
+      <section id="how-it-works" className="py-32 bg-beige-100">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="text-center mb-20">
+            <span className="text-primary text-sm uppercase tracking-wider font-bold">SIMPLE PROCESS</span>
+            <h2 className="text-4xl md:text-5xl font-bold mt-4 mb-6 font-poppins">How It Works</h2>
+            <p className="text-beige-600 max-w-2xl mx-auto text-lg">
+              From setup to insights in just a few simple steps.
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-4 gap-8">
+            <div className="text-center">
+              <div className="w-16 h-16 bg-primary rounded-full flex items-center justify-center text-white font-bold text-xl mx-auto mb-6">
+                1
+              </div>
+              <h3 className="text-xl font-bold mb-4 font-poppins">Create Survey</h3>
+              <p className="text-beige-600">Enter your details, customize questions if needed, and create your test survey in minutes.</p>
+            </div>
+
+            <div className="text-center">
+              <div className="w-16 h-16 bg-primary rounded-full flex items-center justify-center text-white font-bold text-xl mx-auto mb-6">
+                2
+              </div>
+              <h3 className="text-xl font-bold mb-4 font-poppins">Share Link</h3>
+              <p className="text-beige-600">Get a unique survey link to share with your team via email, Slack, or any communication channel.</p>
+            </div>
+
+            <div className="text-center">
+              <div className="w-16 h-16 bg-primary rounded-full flex items-center justify-center text-white font-bold text-xl mx-auto mb-6">
+                3
+              </div>
+              <h3 className="text-xl font-bold mb-4 font-poppins">Team Responds</h3>
+              <p className="text-beige-600">Your team provides anonymous feedback using our secure, mobile-friendly survey platform.</p>
+            </div>
+
+            <div className="text-center">
+              <div className="w-16 h-16 bg-primary rounded-full flex items-center justify-center text-white font-bold text-xl mx-auto mb-6">
+                4
+              </div>
+              <h3 className="text-xl font-bold mb-4 font-poppins">Instant Report</h3>
+              <p className="text-beige-600">Receive a professional PDF report with insights and recommendations immediately in your inbox.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Features Section */}
+      <section className="py-32">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="text-center mb-20">
+            <span className="text-primary text-sm uppercase tracking-wider font-bold">FEATURES</span>
+            <h2 className="text-4xl md:text-5xl font-bold mt-4 mb-6 font-poppins">Everything You Need for Testing</h2>
+          </div>
+
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+            <div className="bg-white p-6 rounded-xl shadow-lg">
+              <CheckCircle className="w-8 h-8 text-primary mb-4" />
+              <h3 className="text-lg font-bold mb-2">Quick Expiry</h3>
+              <p className="text-beige-600 text-sm">1-minute expiry window perfect for rapid testing and validation.</p>
+            </div>
+
+            <div className="bg-white p-6 rounded-xl shadow-lg">
+              <CheckCircle className="w-8 h-8 text-primary mb-4" />
+              <h3 className="text-lg font-bold mb-2">Instant Processing</h3>
+              <p className="text-beige-600 text-sm">Reports generated and delivered immediately when responses are submitted.</p>
+            </div>
+
+            <div className="bg-white p-6 rounded-xl shadow-lg">
+              <CheckCircle className="w-8 h-8 text-primary mb-4" />
+              <h3 className="text-lg font-bold mb-2">Professional Reports</h3>
+              <p className="text-beige-600 text-sm">Beautifully formatted PDF reports with comprehensive analytics.</p>
+            </div>
+
+            <div className="bg-white p-6 rounded-xl shadow-lg">
+              <CheckCircle className="w-8 h-8 text-primary mb-4" />
+              <h3 className="text-lg font-bold mb-2">Anonymous Feedback</h3>
+              <p className="text-beige-600 text-sm">Complete anonymity for honest, valuable feedback from your team.</p>
+            </div>
+
+            <div className="bg-white p-6 rounded-xl shadow-lg">
+              <CheckCircle className="w-8 h-8 text-primary mb-4" />
+              <h3 className="text-lg font-bold mb-2">Mobile Optimized</h3>
+              <p className="text-beige-600 text-sm">Perfect experience on any device - desktop, tablet, or mobile.</p>
+            </div>
+
+            <div className="bg-white p-6 rounded-xl shadow-lg">
+              <CheckCircle className="w-8 h-8 text-primary mb-4" />
+              <h3 className="text-lg font-bold mb-2">Secure & Private</h3>
+              <p className="text-beige-600 text-sm">Enterprise-grade security with complete respondent anonymity.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* CTA Section */}
+      <section className="py-32 bg-beige-100">
+        <div className="max-w-4xl mx-auto px-6 text-center">
+          <h2 className="text-4xl md:text-5xl font-bold mb-8 font-poppins">
+            Ready to Test Your Feedback System?
+          </h2>
+          <p className="text-xl text-beige-600 mb-12">
+            Create a test survey and see how our instant processing works in real-time.
+          </p>
+          <div className="space-y-6">
+            <a 
+              href="/surveytest/create"
+              className="bg-gradient-to-br from-primary to-secondary text-white px-12 py-6 rounded-full font-bold text-lg hover:shadow-lg transition inline-flex items-center border-2 border-white"
+            >
+              Create Your Test Survey
+              <ArrowRight className="ml-3 w-5 h-5" />
+            </a>
+            <p className="text-sm text-beige-500">
+              No logins. No fuss. Just brutally honest feedback.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <footer className="py-12 border-t border-beige-200">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="grid md:grid-cols-2 gap-8">
+            <div>
+              <h4 className="text-2xl font-bold gradient-text mb-4 font-poppins">Cultivated HQ</h4>
+              <p className="text-beige-600">Survey Test - Instant Feedback Platform</p>
+              <a href="mailto:chloe@cultivatedhq.com.au" className="text-primary hover:text-secondary transition">
+                chloe@cultivatedhq.com.au
+              </a>
+            </div>
+            <div className="text-right">
+              <p className="text-beige-600">© 2024 All rights reserved.</p>
+            </div>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }
 
-export default SurveyTestResults;
+export default SurveyTest;

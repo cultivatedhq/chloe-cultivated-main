@@ -1,320 +1,377 @@
-# How to Export and Transfer This Project
+# Edge Functions Deployment Guide
 
-This guide explains how to get this project out of the current environment and into a new account.
+This project includes 10 Supabase Edge Functions. This guide explains what each does and how to deploy them.
 
-## Method 1: Download as ZIP (Recommended)
+## Overview of Edge Functions
 
-### Step 1: Create a ZIP Archive
+| Function Name | Purpose | Requires Secrets |
+|--------------|---------|------------------|
+| `clarity-audit-pdf` | Generates PDF reports for clarity audit surveys | Yes (PDFCO_API_KEY) |
+| `generate-and-send-report-instant` | Creates and immediately emails PDF reports | Yes (PDFCO_API_KEY, RESEND_API_KEY) |
+| `generate-clarity-report` | Core logic for generating clarity report data | No |
+| `generate-pdf-report` | Generic PDF generation utility | Yes (PDFCO_API_KEY) |
+| `process-expired-sessions` | Scheduled job to clean up old survey sessions | No |
+| `receive-hubspot-form` | Webhook receiver for HubSpot form submissions | No |
+| `send-clarity-email` | Sends clarity audit results via email | Yes (RESEND_API_KEY) |
+| `send-notification` | General notification system | Yes (RESEND_API_KEY) |
+| `send-results` | Sends survey results to users | Yes (RESEND_API_KEY) |
+| `test-pdf-report` | Testing endpoint for PDF generation | Yes (PDFCO_API_KEY) |
 
-If you have terminal access in your current environment:
+## Prerequisites
 
-```bash
-# Navigate to the project directory
-cd /tmp/cc-agent/41526930/project
+1. Supabase CLI installed:
+   ```bash
+   npm install -g supabase
+   ```
 
-# Create a ZIP file of the entire project
-zip -r chloe-james-coaching-app.zip . \
-  -x "node_modules/*" \
-  -x ".git/*" \
-  -x "dist/*" \
-  -x ".bolt/*"
-```
+2. Project linked to Supabase:
+   ```bash
+   supabase link --project-ref YOUR_PROJECT_REF
+   ```
 
-This excludes:
-- `node_modules/` (reinstall with `npm install`)
-- `.git/` (you'll create a new repo)
-- `dist/` (regenerated with `npm run build`)
-- `.bolt/` (development environment specific)
+3. Required API keys (see ENVIRONMENT_VARIABLES.md)
 
-### Step 2: Download the ZIP
+## Deploying All Functions
 
-Download the created `chloe-james-coaching-app.zip` file to your local machine.
-
-### Step 3: Extract and Set Up
-
-On your new machine:
-
-```bash
-# Extract the ZIP
-unzip chloe-james-coaching-app.zip -d chloe-james-coaching-app
-
-# Navigate into the project
-cd chloe-james-coaching-app
-
-# Install dependencies
-npm install
-
-# Create your .env file with new credentials
-# (see ENVIRONMENT_VARIABLES.md)
-cp .env.example .env
-# Edit .env with your new Supabase credentials
-
-# Test the build
-npm run build
-
-# Run locally to test
-npm run dev
-```
-
-## Method 2: Git Clone (If Git is Available)
-
-### If the project is already in a Git repository:
+### Step 1: Set Required Secrets
 
 ```bash
-# Clone the repository
-git clone YOUR_REPO_URL chloe-james-coaching-app
-cd chloe-james-coaching-app
+# PDF generation service
+supabase secrets set PDFCO_API_KEY=your_pdfco_api_key
 
-# Install dependencies
-npm install
-
-# Set up environment variables
-cp .env.example .env
-# Edit .env with your credentials
-
-# Test build
-npm run build
+# Email service
+supabase secrets set RESEND_API_KEY=your_resend_api_key
 ```
 
-## Method 3: Manual File Copy
+### Step 2: Deploy Functions
 
-If you can access the file system directly:
+You can deploy all functions at once or individually.
 
-### Files/Folders to Copy
-
-Copy these directories and files to your new location:
-
-```
-📁 Project Root
-├── 📁 src/                      # All React components (REQUIRED)
-├── 📁 public/                   # Static assets, images (REQUIRED)
-├── 📁 supabase/
-│   ├── 📁 migrations/           # Database schema (REQUIRED)
-│   └── 📁 functions/            # Edge functions (REQUIRED)
-├── 📁 logic/                    # Documentation files (OPTIONAL)
-├── 📄 package.json              # Dependencies (REQUIRED)
-├── 📄 package-lock.json         # Lock file (REQUIRED)
-├── 📄 vite.config.ts            # Build config (REQUIRED)
-├── 📄 tsconfig.json             # TypeScript config (REQUIRED)
-├── 📄 tsconfig.app.json         # TypeScript config (REQUIRED)
-├── 📄 tsconfig.node.json        # TypeScript config (REQUIRED)
-├── 📄 tailwind.config.js        # Styling (REQUIRED)
-├── 📄 postcss.config.js         # PostCSS (REQUIRED)
-├── 📄 eslint.config.js          # Linting (OPTIONAL)
-├── 📄 index.html                # Entry HTML (REQUIRED)
-├── 📄 .gitignore                # Git ignore (REQUIRED)
-├── 📄 PROJECT_TRANSFER_GUIDE.md # Transfer guide (HELPFUL)
-├── 📄 ENVIRONMENT_VARIABLES.md  # Env guide (HELPFUL)
-├── 📄 EDGE_FUNCTIONS_GUIDE.md   # Functions guide (HELPFUL)
-└── 📄 README.md                 # Project docs (OPTIONAL)
-```
-
-### DO NOT Copy These:
-
-```
-❌ node_modules/     # Too large, reinstall with npm install
-❌ dist/             # Build output, regenerate with npm run build
-❌ .git/             # Old git history, start fresh
-❌ .bolt/            # Environment-specific
-❌ .env              # Contains old credentials
-```
-
-## After Exporting: Setup Checklist
-
-Follow these steps in order:
-
-### 1. Install Dependencies
+**Deploy All:**
 ```bash
-npm install
+cd /path/to/your/project
+
+# Deploy all functions in the functions directory
+supabase functions deploy clarity-audit-pdf
+supabase functions deploy generate-and-send-report-instant
+supabase functions deploy generate-clarity-report
+supabase functions deploy generate-pdf-report
+supabase functions deploy process-expired-sessions
+supabase functions deploy receive-hubspot-form
+supabase functions deploy send-clarity-email
+supabase functions deploy send-notification
+supabase functions deploy send-results
+supabase functions deploy test-pdf-report
 ```
 
-### 2. Create New .env File
+**Or use a script:**
 ```bash
-# Create the file
-touch .env
+#!/bin/bash
+functions=(
+  "clarity-audit-pdf"
+  "generate-and-send-report-instant"
+  "generate-clarity-report"
+  "generate-pdf-report"
+  "process-expired-sessions"
+  "receive-hubspot-form"
+  "send-clarity-email"
+  "send-notification"
+  "send-results"
+  "test-pdf-report"
+)
 
-# Add your new Supabase credentials
-# (Get these from your new Supabase project)
+for func in "${functions[@]}"; do
+  echo "Deploying $func..."
+  supabase functions deploy "$func"
+done
 ```
 
-Example `.env`:
-```env
-VITE_SUPABASE_URL=https://YOUR_NEW_PROJECT.supabase.co
-VITE_SUPABASE_ANON_KEY=your_new_anon_key_here
+## Function Details
+
+### 1. clarity-audit-pdf
+**Purpose:** Main PDF generation for clarity audits
+**Endpoint:** `https://YOUR_PROJECT.supabase.co/functions/v1/clarity-audit-pdf`
+**Method:** POST
+**Requires:** PDFCO_API_KEY
+
+**Usage:**
+```typescript
+const response = await fetch(
+  `${supabaseUrl}/functions/v1/clarity-audit-pdf`,
+  {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${supabaseAnonKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ session_id: 'uuid' })
+  }
+);
 ```
 
-### 3. Set Up Supabase
+### 2. generate-and-send-report-instant
+**Purpose:** End-to-end report generation and email delivery
+**Endpoint:** `https://YOUR_PROJECT.supabase.co/functions/v1/generate-and-send-report-instant`
+**Method:** POST
+**Requires:** PDFCO_API_KEY, RESEND_API_KEY
 
-```bash
-# Install Supabase CLI globally
-npm install -g supabase
-
-# Initialize Supabase in the project
-supabase init
-
-# Link to your new Supabase project
-supabase link --project-ref YOUR_PROJECT_REF
-
-# Apply all database migrations
-supabase db push
-
-# Deploy all edge functions
-# (See EDGE_FUNCTIONS_GUIDE.md for details)
+**Usage:**
+```typescript
+const response = await fetch(
+  `${supabaseUrl}/functions/v1/generate-and-send-report-instant`,
+  {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${supabaseAnonKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      session_id: 'uuid',
+      email: 'user@example.com'
+    })
+  }
+);
 ```
 
-### 4. Set Supabase Secrets
+### 3. generate-clarity-report
+**Purpose:** Calculates scores and generates report data
+**Endpoint:** `https://YOUR_PROJECT.supabase.co/functions/v1/generate-clarity-report`
+**Method:** POST
 
-```bash
-# Set API keys for edge functions
-supabase secrets set PDFCO_API_KEY=your_key
-supabase secrets set RESEND_API_KEY=your_key
+**Usage:**
+```typescript
+const response = await fetch(
+  `${supabaseUrl}/functions/v1/generate-clarity-report`,
+  {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${supabaseAnonKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ session_id: 'uuid' })
+  }
+);
 ```
 
-### 5. Test Locally
+### 4. generate-pdf-report
+**Purpose:** Generic PDF generation utility
+**Endpoint:** `https://YOUR_PROJECT.supabase.co/functions/v1/generate-pdf-report`
+**Method:** POST
+**Requires:** PDFCO_API_KEY
 
-```bash
-# Build the project
-npm run build
+### 5. process-expired-sessions
+**Purpose:** Cleanup job for old sessions (can be scheduled)
+**Endpoint:** `https://YOUR_PROJECT.supabase.co/functions/v1/process-expired-sessions`
+**Method:** POST
 
-# If successful, run dev server
-npm run dev
+**Set up cron schedule:**
+```sql
+-- Run this in your Supabase SQL editor to set up automatic cleanup
+select cron.schedule(
+  'cleanup-expired-sessions',
+  '0 2 * * *', -- Every day at 2 AM
+  $$
+  select net.http_post(
+    url := 'https://YOUR_PROJECT.supabase.co/functions/v1/process-expired-sessions',
+    headers := '{"Content-Type": "application/json", "Authorization": "Bearer YOUR_SERVICE_ROLE_KEY"}'::jsonb
+  ) as request_id;
+  $$
+);
 ```
 
-Visit http://localhost:5173 to test the app.
+### 6. receive-hubspot-form
+**Purpose:** Webhook endpoint for HubSpot form submissions
+**Endpoint:** `https://YOUR_PROJECT.supabase.co/functions/v1/receive-hubspot-form`
+**Method:** POST
 
-### 6. Initialize Git Repository
+**Configure in HubSpot:**
+1. Go to your HubSpot form settings
+2. Add webhook URL: `https://YOUR_PROJECT.supabase.co/functions/v1/receive-hubspot-form`
+3. Select form fields to send
 
-```bash
-# Initialize new git repo
-git init
+### 7. send-clarity-email
+**Purpose:** Email delivery for clarity audit results
+**Endpoint:** `https://YOUR_PROJECT.supabase.co/functions/v1/send-clarity-email`
+**Method:** POST
+**Requires:** RESEND_API_KEY
 
-# Add all files
-git add .
+### 8. send-notification
+**Purpose:** General notification system for various alerts
+**Endpoint:** `https://YOUR_PROJECT.supabase.co/functions/v1/send-notification`
+**Method:** POST
+**Requires:** RESEND_API_KEY
 
-# First commit
-git commit -m "Initial commit: Chloe James Coaching app"
+### 9. send-results
+**Purpose:** Sends survey results to participants
+**Endpoint:** `https://YOUR_PROJECT.supabase.co/functions/v1/send-results`
+**Method:** POST
+**Requires:** RESEND_API_KEY
 
-# Add remote (GitHub, GitLab, etc.)
-git remote add origin YOUR_NEW_REPO_URL
+### 10. test-pdf-report
+**Purpose:** Testing endpoint for PDF generation
+**Endpoint:** `https://YOUR_PROJECT.supabase.co/functions/v1/test-pdf-report`
+**Method:** GET or POST
+**Requires:** PDFCO_API_KEY
 
-# Push to remote
-git push -u origin main
-```
+## Testing Edge Functions
 
-### 7. Deploy to Netlify
-
-1. Push code to GitHub (step 6 above)
-2. Go to netlify.com
-3. Click "Add new site" > "Import an existing project"
-4. Connect to GitHub and select your repo
-5. Configure:
-   - Build command: `npm run build`
-   - Publish directory: `dist`
-6. Add environment variables:
-   - `VITE_SUPABASE_URL`
-   - `VITE_SUPABASE_ANON_KEY`
-7. Deploy!
-
-## Verification Checklist
-
-After transfer, verify everything works:
-
-- [ ] Project builds without errors (`npm run build`)
-- [ ] Dev server runs (`npm run dev`)
-- [ ] All pages load correctly
-- [ ] Images display properly
-- [ ] Forms submit successfully
-- [ ] Supabase connection works
-- [ ] Database queries execute
-- [ ] Edge functions respond
-- [ ] PDF generation works
-- [ ] Email sending works
-- [ ] Navigation between pages works
-- [ ] Responsive design looks good
-
-## File Size Reference
-
-Approximate sizes (without node_modules and dist):
-
-- Total project: ~5-10 MB
-- Source code: ~2 MB
-- Images: ~3-5 MB
-- Documentation: ~100 KB
-- Migrations: ~50 KB
-- Edge functions: ~200 KB
-
-With node_modules (after npm install): ~200-300 MB
-
-## Common Transfer Issues
-
-### "Cannot find module"
-**Solution:** Run `npm install` to install dependencies
-
-### "ENOENT: no such file or directory"
-**Solution:** Make sure you copied all required files/folders
-
-### "Supabase client error"
-**Solution:** Update `.env` with correct credentials from new project
-
-### "Build fails with TypeScript errors"
-**Solution:** Ensure all TypeScript config files were copied:
-- `tsconfig.json`
-- `tsconfig.app.json`
-- `tsconfig.node.json`
-
-### "Images not loading"
-**Solution:** Verify `public/` folder was copied with all images
-
-### "Styles not applying"
-**Solution:** Check that these files exist:
-- `tailwind.config.js`
-- `postcss.config.js`
-- `src/index.css`
-
-## Support Contacts
-
-If you encounter issues during transfer:
-
-1. Check all the guide documents:
-   - `PROJECT_TRANSFER_GUIDE.md`
-   - `ENVIRONMENT_VARIABLES.md`
-   - `EDGE_FUNCTIONS_GUIDE.md`
-
-2. Review official documentation:
-   - [Supabase Docs](https://supabase.com/docs)
-   - [Vite Docs](https://vitejs.dev)
-   - [Netlify Docs](https://docs.netlify.com)
-
-3. Common issues are usually:
-   - Missing environment variables
-   - Incorrect Supabase credentials
-   - Missing dependencies (run `npm install`)
-   - Edge functions not deployed
-
-## Quick Start Commands
-
-Once you have the files in a new location:
+### Test from Command Line
 
 ```bash
-# Complete setup in one go
-npm install && \
-npm run build && \
-echo "Setup complete! Edit .env with your Supabase credentials" && \
-echo "Then run: npm run dev"
+# Test a function locally
+supabase functions serve clarity-audit-pdf
+
+# In another terminal, make a request
+curl -X POST http://localhost:54321/functions/v1/clarity-audit-pdf \
+  -H "Authorization: Bearer YOUR_ANON_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"session_id":"test-uuid"}'
 ```
 
-## Next Steps
+### Test from Supabase Dashboard
 
-After successful transfer:
+1. Go to Edge Functions in your Supabase dashboard
+2. Click on a function
+3. Use the "Invoke" tab to test
+4. Add request body and headers
+5. Click "Run"
 
-1. Read `PROJECT_TRANSFER_GUIDE.md` for full setup
-2. Configure environment variables (see `ENVIRONMENT_VARIABLES.md`)
-3. Deploy edge functions (see `EDGE_FUNCTIONS_GUIDE.md`)
-4. Deploy to Netlify
-5. Test all functionality
-6. Update any hardcoded URLs or references
-7. Configure custom domain (optional)
+### Test from Frontend
 
----
+```typescript
+// Example test in your React app
+const testFunction = async () => {
+  try {
+    const response = await fetch(
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/test-pdf-report`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ test: true })
+      }
+    );
+    const data = await response.json();
+    console.log('Function response:', data);
+  } catch (error) {
+    console.error('Function error:', error);
+  }
+};
+```
 
-**Important:** Keep a backup of the original project until you've verified everything works in the new environment!
+## Monitoring and Logs
+
+### View Function Logs
+
+**In Supabase Dashboard:**
+1. Go to Edge Functions
+2. Click on a function
+3. Go to "Logs" tab
+4. View real-time logs
+
+**Via CLI:**
+```bash
+# Stream logs for a specific function
+supabase functions logs clarity-audit-pdf --follow
+
+# View recent logs
+supabase functions logs clarity-audit-pdf --limit 100
+```
+
+### Monitor Function Performance
+
+Check in Supabase Dashboard:
+- Invocation count
+- Error rate
+- Average execution time
+- Most recent errors
+
+## Common Issues and Solutions
+
+### "Function not found"
+- Verify function is deployed: `supabase functions list`
+- Check function name spelling
+- Ensure project is linked correctly
+
+### "Secrets not available"
+- List secrets: `supabase secrets list`
+- Set missing secrets
+- Redeploy function after setting secrets
+
+### "CORS error"
+All functions include CORS headers. If you still see errors:
+```typescript
+// Check that CORS headers are present in function response
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
+};
+```
+
+### "Timeout error"
+- Default timeout is 150 seconds
+- Check function logs for performance issues
+- Consider breaking up long-running tasks
+
+### "Out of memory"
+- Edge functions have 512MB RAM limit
+- Optimize data processing
+- Consider streaming for large responses
+
+## Updating Functions
+
+When you make changes to a function:
+
+```bash
+# 1. Save your changes to the function file
+
+# 2. Redeploy the specific function
+supabase functions deploy function-name
+
+# 3. Test the updated function
+curl -X POST https://YOUR_PROJECT.supabase.co/functions/v1/function-name \
+  -H "Authorization: Bearer YOUR_ANON_KEY" \
+  -H "Content-Type: application/json"
+```
+
+## Security Best Practices
+
+1. **Never expose service role key in frontend**
+   - Only use in edge functions
+   - Never log or return it
+
+2. **Validate all inputs**
+   - Check request body structure
+   - Validate UUIDs and email formats
+   - Sanitize user input
+
+3. **Use RLS policies**
+   - Edge functions can bypass RLS with service role
+   - But still validate ownership/permissions
+
+4. **Rate limiting**
+   - Consider implementing rate limiting
+   - Use Supabase's built-in protections
+
+5. **Error handling**
+   - Never expose internal errors to users
+   - Log detailed errors server-side
+   - Return generic messages to client
+
+## Cost Optimization
+
+- Edge functions are billed per invocation
+- Free tier: 500K function invocations/month
+- Optimize function code for speed
+- Cache results where possible
+- Clean up old data regularly
+
+## Additional Resources
+
+- [Supabase Edge Functions Docs](https://supabase.com/docs/guides/functions)
+- [Deno Documentation](https://deno.land/manual)
+- [PDF.co API Docs](https://apidocs.pdf.co/)
+- [Resend API Docs](https://resend.com/docs)

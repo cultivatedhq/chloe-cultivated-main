@@ -1,120 +1,248 @@
-# Bolt Test Workflow Guide
+# Complete Bolt Workflow Setup for Survey Processing
 
-## Creating a Test Workflow for PDF Report Generation
+## Block 1: Get Survey Data
+**Type:** Supabase SQL Query
+**Query:**
+```sql
+SELECT * FROM feedback_sessions WHERE id = '{{ survey_id }}'
+```
+**Output Variable:** `survey`
 
-This guide walks you through creating a test workflow in Bolt to verify that your PDF report generation system is working correctly.
+## Block 2: Get Responses
+**Type:** Supabase SQL Query  
+**Query:**
+```sql
+SELECT * FROM feedback_responses WHERE session_id = '{{ survey_id }}'
+```
+**Output Variable:** `responses`
 
-## Step 1: Create a New Workflow
+## Block 3: Process Survey Data
+**Type:** Logic/JavaScript
+**Code:** (Use your provided code)
+```javascript
+const questionStats = {};
+const comments = [];
+const ssk = { start: [], stop: [], keep: [] };
 
-1. Log in to your Bolt account
-2. Click "Create New Workflow" button
-3. Fill in the basic details:
-   - **Name:** Test PDF Report Generation
-   - **Description:** Manually test the PDF report generation system
-   - **Trigger Type:** Run on demand (Manual trigger)
+responses.forEach(r => {
+  Object.entries(r.answers || {}).forEach(([q, val]) => {
+    if (!questionStats[q]) questionStats[q] = [];
+    questionStats[q].push(Number(val));
+  });
 
-## Step 2: Add HTTP Request Block
+  if (r.comment) comments.push(r.comment);
+  if (r.start) ssk.start.push(r.start);
+  if (r.stop) ssk.stop.push(r.stop);
+  if (r.keep) ssk.keep.push(r.keep);
+});
 
-This block will call your Supabase Edge Function to generate a test PDF report.
+const questions = Object.entries(questionStats).map(([text, scores]) => {
+  const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+  const sorted = [...scores].sort((a, b) => a - b);
+  const median = sorted[Math.floor(scores.length / 2)];
+  const dist = [1,2,3,4,5].reduce((acc, n) => {
+    acc[n] = scores.filter(s => s === n).length;
+    return acc;
+  }, {});
+  return { text, avg: avg.toFixed(2), median, dist };
+});
 
-1. Click "+ Add Step"
-2. Select "HTTP Request"
-3. Configure the block:
-   - **Name:** Generate Test PDF Report
-   - **Method:** POST
-   - **URL:** `https://vidlhnvtsjjzrsshepcd.supabase.co/functions/v1/test-pdf-report`
-   - **Headers:**
-     ```json
-     {
-       "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZpZGxobnZ0c2pqenJzc2hlcGNkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA5OTU0NTQsImV4cCI6MjA2NjU3MTQ1NH0.Uc6OovgASNXejAtdJKW_tX-Ju2Emon-4Z5anDsVGKs8",
-       "Content-Type": "application/json"
-     }
-     ```
-   - **Body:**
-     ```json
-     {}
-     ```
-   - **Output Variable:** `pdf_result`
+const top = questions.reduce((a, b) => (a.avg > b.avg ? a : b));
+const low = questions.reduce((a, b) => (a.avg < b.avg ? a : b));
+const avg_score = questions.reduce((s, q) => s + parseFloat(q.avg), 0) / questions.length;
+const avg_score_percent = Math.round((avg_score / 5) * 100);
 
-## Step 3: Add Logic Block to Process Results
+return {
+  total_responses: responses.length,
+  questions,
+  top_question: top.text,
+  top_score: top.avg,
+  lowest_question: low.text,
+  low_score: low.avg,
+  avg_score: avg_score.toFixed(2),
+  avg_score_percent,
+  comment_count: comments.length,
+  comments,
+  ssk: {
+    start: ssk.start.join(', '),
+    stop: ssk.stop.join(', '),
+    keep: ssk.keep.join(', ')
+  }
+};
+```
+**Output Variable:** `processedData`
 
-This block will process and display the results from the HTTP request.
+## Block 4: Set Variables
+**Type:** Set Variable (create multiple blocks)
 
-1. Click "+ Add Step"
-2. Select "Logic/JavaScript"
-3. Configure the block:
-   - **Name:** Display PDF Report Results
-   - **Code:**
-     ```javascript
-     console.log('✅ PDF Report Generation Test Results:');
-     console.log('PDF URL:', pdf_result.pdf_url);
-     console.log('PDF Name:', pdf_result.pdf_name);
-     console.log('Generated at:', pdf_result.timestamp);
+### Variable 1: total_responses
+**Value:** `{{ processedData.total_responses }}`
 
-     // Create a formatted result for display
-     return {
-       success: pdf_result.success,
-       pdf_url: pdf_result.pdf_url,
-       pdf_name: pdf_result.pdf_name,
-       test_data: pdf_result.test_data,
-       timestamp: pdf_result.timestamp
-     };
-     ```
-   - **Output Variable:** `display_results`
+### Variable 2: avg_score
+**Value:** `{{ processedData.avg_score }}`
 
-## Step 4: Add HTML Preview Block
+### Variable 3: avg_score_percent  
+**Value:** `{{ processedData.avg_score_percent }}`
 
-This block will create a nice HTML preview of the results with a link to the PDF.
+### Variable 4: top_question
+**Value:** `{{ processedData.top_question }}`
 
-1. Click "+ Add Step"
-2. Select "Set Variable"
-3. Configure the block:
-   - **Variable Name:** `preview_html`
-   - **Value:** (Copy the HTML template from the bolt-test-pdf-flow.md file)
+### Variable 5: top_score
+**Value:** `{{ processedData.top_score }}`
 
-## Step 5: Add Preview Block
+### Variable 6: lowest_question
+**Value:** `{{ processedData.lowest_question }}`
 
-This block will display the HTML preview.
+### Variable 7: low_score
+**Value:** `{{ processedData.low_score }}`
 
-1. Click "+ Add Step"
-2. Select "Preview"
-3. Configure the block:
-   - **Name:** Preview PDF Report
-   - **Content:** `{{ preview_html }}`
+### Variable 8: questions
+**Value:** `{{ processedData.questions }}`
 
-## Step 6: Save and Run the Workflow
+### Variable 9: comments
+**Value:** `{{ processedData.comments }}`
 
-1. Click "Save" to save your workflow
-2. Click "Run" to manually trigger the workflow
-3. Wait for the workflow to complete (usually takes 10-15 seconds)
-4. View the results in the Preview block
-5. Click the "View Generated PDF Report" button to open the PDF in a new tab
+### Variable 10: ssk
+**Value:** `{{ processedData.ssk }}`
 
-## What to Check in the PDF
+## Block 5: Build HTML Report
+**Type:** Set Variable
+**Variable Name:** `report_html`
+**Value:**
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Leadership Feedback Report</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        .header { text-align: center; border-bottom: 2px solid #2a9d8f; padding-bottom: 20px; }
+        .section { margin: 30px 0; }
+        .question { margin: 20px 0; padding: 15px; background: #f5f5f5; border-radius: 8px; }
+        .score { font-weight: bold; color: #2a9d8f; }
+        .comment { background: #e8f5e8; padding: 10px; margin: 10px 0; border-left: 4px solid #2a9d8f; }
+        .ssk-section { background: #f0f8ff; padding: 20px; border-radius: 8px; margin: 20px 0; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Leadership Feedback Report</h1>
+        <p>Generated by Cultivated HQ</p>
+    </div>
+    
+    <div class="section">
+        <h2>Summary</h2>
+        <p><strong>Total Responses:</strong> {{ total_responses }}</p>
+        <p><strong>Overall Score:</strong> {{ avg_score_percent }}% ({{ avg_score }}/5)</p>
+        <p><strong>Strongest Area:</strong> {{ top_question }} ({{ top_score }})</p>
+        <p><strong>Development Area:</strong> {{ lowest_question }} ({{ low_score }})</p>
+    </div>
+    
+    <div class="section">
+        <h2>Question Results</h2>
+        {{#each questions}}
+        <div class="question">
+            <h3>{{ this.text }}</h3>
+            <p>Average: <span class="score">{{ this.avg }}/5</span> | Median: {{ this.median }}</p>
+            <p>Distribution: 
+                {{#each this.dist}}
+                {{ @key }}★: {{ this }} 
+                {{/each}}
+            </p>
+        </div>
+        {{/each}}
+    </div>
+    
+    {{#if ssk.start}}
+    <div class="section">
+        <h2>Start/Stop/Keep Feedback</h2>
+        <div class="ssk-section">
+            {{#if ssk.start}}<p><strong>Start Doing:</strong> {{ ssk.start }}</p>{{/if}}
+            {{#if ssk.stop}}<p><strong>Stop Doing:</strong> {{ ssk.stop }}</p>{{/if}}
+            {{#if ssk.keep}}<p><strong>Keep Doing:</strong> {{ ssk.keep }}</p>{{/if}}
+        </div>
+    </div>
+    {{/if}}
+    
+    {{#if comments}}
+    <div class="section">
+        <h2>Additional Comments</h2>
+        {{#each comments}}
+        <div class="comment">{{ this }}</div>
+        {{/each}}
+    </div>
+    {{/if}}
+    
+    <div class="section">
+        <p><em>Generated on {{ date }} | Cultivated HQ</em></p>
+    </div>
+</body>
+</html>
+```
 
-When you open the PDF, verify:
+## Block 6: Generate PDF
+**Type:** HTTP Request
+**Method:** POST
+**URL:** `https://api.pdf.co/v1/pdf/convert/from/html`
+**Headers:**
+```json
+{
+  "x-api-key": "cbjames674@gmail.com_C8Qxi0EeYZPsuFleKhRErEynYQ12d16f2TttcgYaMpKOtP3aHlBHTNvG64EynWbR",
+  "Content-Type": "application/json"
+}
+```
+**Body:**
+```json
+{
+  "html": "{{ report_html }}",
+  "name": "Leadership-Feedback-Report.pdf",
+  "async": false,
+  "margins": "20px",
+  "paperSize": "A4",
+  "orientation": "Portrait"
+}
+```
+**Output Variable:** `pdf_response`
 
-1. **Professional formatting and layout**
-2. **Correct data display and calculations**
-3. **Charts and visualizations**
-4. **Personalized recommendations**
-5. **Sample comments section**
-6. **Overall report quality and readability**
+## Block 7: Send Email
+**Type:** Email
+**To:** `{{ survey.manager_email }}, chloe@cultivatedhq.com.au`
+**Subject:** `Your Leadership Feedback Report is Ready`
+**Body:**
+```
+Hi {{ survey.manager_name }},
 
-## Troubleshooting
+Your leadership feedback report is ready! Here's a quick summary:
 
-If the test fails, check:
+📊 RESULTS SUMMARY:
+• Total Responses: {{ total_responses }}
+• Overall Leadership Score: {{ avg_score_percent }}%
+• Strongest Area: {{ top_question }} ({{ top_score }}/5)
+• Development Opportunity: {{ lowest_question }} ({{ low_score }}/5)
 
-1. **Edge Function Deployment:** Ensure the `test-pdf-report` function is deployed
-2. **API Key:** Verify the Supabase anon key is correct
-3. **PDF.co API Key:** Check that the PDF.co API key in the function is valid
-4. **Function Logs:** Review the Supabase Edge Function logs for errors
+📄 DOWNLOAD YOUR FULL REPORT:
+{{ pdf_response.url }}
 
-## Next Steps
+🎯 START/STOP/KEEP FEEDBACK:
+{{#if ssk.start}}
+START DOING: {{ ssk.start }}
+{{/if}}
+{{#if ssk.stop}}
+STOP DOING: {{ ssk.stop }}
+{{/if}}
+{{#if ssk.keep}}
+KEEP DOING: {{ ssk.keep }}
+{{/if}}
 
-After confirming the PDF generation works:
+Your detailed PDF report includes:
+✅ Complete statistical analysis
+✅ Question-by-question breakdown
+✅ Anonymous team comments
+✅ Development recommendations
 
-1. Test the scheduled workflow with a real expired survey
-2. Verify email delivery
-3. Check database updates
-4. Monitor the daily automated processing
+Thank you for investing in your leadership development!
+
+Best regards,
+Chloe James
+Cultivated HQ
+```

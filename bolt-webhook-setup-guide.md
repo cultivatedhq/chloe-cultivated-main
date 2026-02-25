@@ -1,338 +1,140 @@
-# 🚀 Bolt Deployment Guide - Step by Step
+# Test PDF Report Flow Setup Guide
 
-## ✅ **Prerequisites Checklist**
+## Complete Setup Instructions
 
-Before starting, ensure you have:
-- [x] Supabase project connected to your app
-- [x] Database migration applied (20250627082616_patient_bonus.sql)
-- [x] PDF.co API key: `cbjames674@gmail.com_C8Qxi0EeYZPsuFleKhRErEynYQ12d16f2TttcgYaMpKOtP3aHlBHTNvG64EynWbR`
-- [x] Email service configured in Bolt
-- [x] Access to Bolt workflow builder
+### Step 1: Create a New Workflow
+1. Open Bolt and click "Create New Workflow"
+2. Name: "Test PDF Report Generation"
+3. Description: "Manually test the PDF report generation system"
+4. Trigger Type: "Run on demand" (Manual trigger)
 
----
+### Step 2: Add HTTP Request Block
+**Block Type:** HTTP Request
+**Name:** "Generate Test PDF Report"
+**Method:** POST
+**URL:** `https://vidlhnvtsjjzrsshepcd.supabase.co/functions/v1/test-pdf-report`
+**Headers:**
+```json
+{
+  "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZpZGxobnZ0c2pqenJzc2hlcGNkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA5OTU0NTQsImV4cCI6MjA2NjU3MTQ1NH0.Uc6OovgASNXejAtdJKW_tX-Ju2Emon-4Z5anDsVGKs8",
+  "Content-Type": "application/json"
+}
+```
+**Body:**
+```json
+{}
+```
+**Output Variable:** `pdf_result`
 
-## 🔧 **Step 1: Create the Scheduled Trigger**
+### Step 3: Add Display Results Block
+**Block Type:** Logic/JavaScript
+**Name:** "Display PDF Report Results"
+**Code:**
+```javascript
+console.log('✅ PDF Report Generation Test Results:');
+console.log('PDF URL:', pdf_result.pdf_url);
+console.log('PDF Name:', pdf_result.pdf_name);
+console.log('Generated at:', pdf_result.timestamp);
 
-1. **Open Bolt** and navigate to Workflows
-2. **Click "Create New Workflow"**
-3. **Set up the trigger:**
-   - **Trigger Type:** Scheduled
-   - **Schedule:** `0 8 * * *` (Daily at 8:00 AM)
-   - **Name:** "Process Expired Leadership Surveys"
-   - **Description:** "Automatically process expired surveys and send PDF reports"
+// Create a formatted result for display
+return {
+  success: pdf_result.success,
+  pdf_url: pdf_result.pdf_url,
+  pdf_name: pdf_result.pdf_name,
+  test_data: pdf_result.test_data,
+  timestamp: pdf_result.timestamp
+};
+```
+**Output Variable:** `display_results`
 
----
+### Step 4: Add Preview PDF Block
+**Block Type:** Set Variable
+**Variable Name:** `preview_html`
+**Value:**
+```html
+<div style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px;">
+  <div style="background: #e8f5f3; padding: 20px; border-radius: 10px; margin-bottom: 20px; border-left: 4px solid #2a9d8f;">
+    <h2 style="color: #2a9d8f; margin-top: 0;">✅ PDF Report Generated Successfully!</h2>
+    <p><strong>Status:</strong> {{ display_results.success ? 'Success' : 'Failed' }}</p>
+    <p><strong>Generated:</strong> {{ new Date(display_results.timestamp).toLocaleString() }}</p>
+    <p><strong>File Name:</strong> {{ display_results.pdf_name }}</p>
+  </div>
 
-## 🔧 **Step 2: Add Get Expired Surveys Block**
+  <div style="text-align: center; margin: 30px 0;">
+    <a href="{{ display_results.pdf_url }}" target="_blank" style="background: #2a9d8f; color: white; padding: 15px 30px; text-decoration: none; border-radius: 25px; font-weight: bold; display: inline-block;">
+      📄 View Generated PDF Report
+    </a>
+  </div>
 
-1. **Add Block:** Supabase SQL Query
-2. **Configuration:**
-   - **Name:** "Get Expired Surveys"
-   - **Query:**
-   ```sql
-   SELECT * FROM session_expiration_status 
-   WHERE status = 'expired_pending'
-   ORDER BY expires_at ASC;
-   ```
-   - **Output Variable:** `surveys`
+  <div style="background: #f5f5f0; padding: 20px; border-radius: 10px; margin: 20px 0;">
+    <h3 style="margin-top: 0;">📊 Test Report Details:</h3>
+    <ul>
+      <li><strong>Survey Title:</strong> {{ display_results.test_data.survey_title }}</li>
+      <li><strong>Manager:</strong> {{ display_results.test_data.manager_name }}</li>
+      <li><strong>Email:</strong> {{ display_results.test_data.manager_email }}</li>
+      <li><strong>Total Responses:</strong> {{ display_results.test_data.total_responses }}</li>
+      <li><strong>Overall Score:</strong> {{ display_results.test_data.overall_score }}%</li>
+      <li><strong>Performance Category:</strong> {{ display_results.test_data.performance_category }}</li>
+    </ul>
+  </div>
 
----
+  <div style="background: #e0f7fa; padding: 20px; border-radius: 10px; margin: 20px 0; border-left: 4px solid #0097a7;">
+    <h3 style="margin-top: 0; color: #0097a7;">🔍 What to Check in the PDF:</h3>
+    <ul>
+      <li>Professional formatting and layout</li>
+      <li>Correct data display and calculations</li>
+      <li>Charts and visualizations</li>
+      <li>Personalized recommendations</li>
+      <li>Sample comments section</li>
+      <li>Overall report quality and readability</li>
+    </ul>
+  </div>
 
-## 🔧 **Step 3: Add For Each Loop**
+  <p style="text-align: center; margin-top: 30px; color: #666;">
+    This test confirms that your PDF generation system is working correctly.<br>
+    The same system will be used to generate reports for expired surveys.
+  </p>
+</div>
+```
 
-1. **Add Block:** For Each
-2. **Configuration:**
-   - **Name:** "Process Each Survey"
-   - **Input:** `surveys`
-   - **Alias:** `survey`
+### Step 5: Add Preview Block
+**Block Type:** Preview
+**Name:** "Preview PDF Report"
+**Content:** `{{ preview_html }}`
 
----
+## Running the Test
 
-## 🔧 **Step 4: Get Survey Analysis (Inside Loop)**
+1. Go to your Bolt dashboard
+2. Find the "Test PDF Report Generation" workflow
+3. Click "Run" to manually trigger the workflow
+4. Wait for the workflow to complete (usually takes 10-15 seconds)
+5. View the results in the Preview block
+6. Click the "View Generated PDF Report" button to open the PDF in a new tab
 
-1. **Add Block:** Supabase SQL Query
-2. **Configuration:**
-   - **Name:** "Get Complete Survey Analysis"
-   - **Query:**
-   ```sql
-   SELECT * FROM get_complete_survey_analysis('{{ survey.id }}');
-   ```
-   - **Output Variable:** `analysis`
+## What This Tests
 
----
+This workflow tests:
 
-## 🔧 **Step 5: Process Data for Template (Inside Loop)**
+1. **Edge Function Connectivity**: Verifies that your Supabase Edge Function is accessible
+2. **PDF.co Integration**: Confirms that the PDF.co API key is valid and working
+3. **HTML Template**: Tests that your HTML report template renders correctly
+4. **Email Template**: Indirectly tests the email template structure
+5. **End-to-End Flow**: Validates the complete PDF generation process
 
-1. **Add Block:** Logic/JavaScript
-2. **Configuration:**
-   - **Name:** "Process Data for Template"
-   - **Code:**
-   ```javascript
-   // Extract and format data from the analysis
-   const analysisData = analysis[0];
-   const sessionData = analysisData.session_data;
-   const responseCount = analysisData.response_count;
-   const questionAnalytics = analysisData.question_analytics || [];
-   const overallMetrics = analysisData.overall_metrics || {};
-   const commentsData = analysisData.comments_data || [];
+## Troubleshooting
 
-   // Calculate scale max
-   const scaleMax = sessionData.scale_type === 'likert_7' ? 7 : 5;
+If the test fails, check:
 
-   // Process question analytics
-   const questionAverages = questionAnalytics.map(q => q.average_score || 0);
-   const questionMedians = questionAnalytics.map(q => q.median_score || 0);
-   const responseDistributions = questionAnalytics.map(q => {
-     const dist = q.distribution || {};
-     const result = [];
-     for (let i = 1; i <= scaleMax; i++) {
-       result.push(dist[i.toString()] || 0);
-     }
-     return result;
-   });
+1. **Edge Function Deployment**: Ensure the `test-pdf-report` function is deployed
+2. **API Key**: Verify the Supabase anon key is correct
+3. **PDF.co API Key**: Check that the PDF.co API key in the function is valid
+4. **Function Logs**: Review the Supabase Edge Function logs for errors
 
-   // Extract comments
-   const comments = commentsData.map(c => c.comment || '').filter(c => c.length > 0);
+## Next Steps
 
-   // Calculate overall percentage
-   const overallAverage = overallMetrics.overall_average || 0;
-   const overallPercentage = Math.round((overallAverage / scaleMax) * 100);
+After confirming the PDF generation works:
 
-   // Get strongest and weakest areas
-   const strongestIndex = overallMetrics.strongest_question_index || 0;
-   const weakestIndex = overallMetrics.weakest_question_index || 0;
-   const strongestArea = sessionData.questions[strongestIndex] || 'N/A';
-   const weakestArea = sessionData.questions[weakestIndex] || 'N/A';
-
-   // Create template data object
-   const templateData = {
-     survey: {
-       ...sessionData,
-       scale_max: scaleMax
-     },
-     analytics: {
-       total_responses: responseCount,
-       question_averages: questionAverages,
-       question_medians: questionMedians,
-       response_distributions: responseDistributions,
-       overall_average: overallAverage,
-       overall_percentage: overallPercentage,
-       strongest_area: strongestArea,
-       strongest_score: overallMetrics.strongest_score || 0,
-       weakest_area: weakestArea,
-       weakest_score: overallMetrics.weakest_score || 0,
-       comments: comments,
-       comment_count: comments.length,
-       performance_category: overallMetrics.performance_category || 'needs_improvement'
-     },
-     processed_at: new Date().toISOString()
-   };
-
-   console.log('Template data prepared:', templateData);
-   return templateData;
-   ```
-   - **Output Variable:** `templateData`
-
----
-
-## 🔧 **Step 6: Build Report HTML (Inside Loop)**
-
-1. **Add Block:** Set Variable
-2. **Configuration:**
-   - **Variable Name:** `report_html`
-   - **Value:** Copy the complete HTML template from `logic/survey-report-html-template.html`
-
----
-
-## 🔧 **Step 7: Add Conditional Logic (Inside Loop)**
-
-1. **Add Block:** Conditional Logic
-2. **Configuration:**
-   - **Name:** "Check if Survey Has Responses"
-   - **Condition:** `{{ templateData.analytics.total_responses > 0 }}`
-
----
-
-## 🔧 **Step 8A: Generate PDF (TRUE Branch)**
-
-1. **Add Block:** HTTP Request
-2. **Configuration:**
-   - **Name:** "Generate PDF with PDF.co"
-   - **Method:** POST
-   - **URL:** `https://api.pdf.co/v1/pdf/convert/from/html`
-   - **Headers:**
-   ```json
-   {
-     "x-api-key": "cbjames674@gmail.com_C8Qxi0EeYZPsuFleKhRErEynYQ12d16f2TttcgYaMpKOtP3aHlBHTNvG64EynWbR",
-     "Content-Type": "application/json"
-   }
-   ```
-   - **Body:**
-   ```json
-   {
-     "html": "{{ report_html }}",
-     "name": "Leadership-Report-{{ templateData.survey.manager_name }}-{{ new Date().toISOString().split('T')[0] }}.pdf",
-     "async": false,
-     "margins": "20px",
-     "paperSize": "A4",
-     "orientation": "Portrait",
-     "printBackground": true,
-     "mediaType": "print"
-   }
-   ```
-   - **Output Variable:** `pdf_response`
-
----
-
-## 🔧 **Step 9A: Send Report Email (TRUE Branch)**
-
-1. **Add Block:** Email
-2. **Configuration:**
-   - **Name:** "Send PDF Report Email"
-   - **To:** `{{ templateData.survey.manager_email }}`
-   - **CC:** `chloe@cultivatedhq.com.au`
-   - **Subject:** `Your Leadership Feedback Report is Ready: {{ templateData.survey.title }}`
-   - **Body:** Copy the HTML email template from the complete setup guide
-
----
-
-## 🔧 **Step 8B: Send No Responses Email (FALSE Branch)**
-
-1. **Add Block:** Email
-2. **Configuration:**
-   - **Name:** "Send No Responses Email"
-   - **To:** `{{ templateData.survey.manager_email }}`
-   - **CC:** `chloe@cultivatedhq.com.au`
-   - **Subject:** `Survey Closed: {{ templateData.survey.title }}`
-   - **Body:** Copy the no responses email template from the complete setup guide
-
----
-
-## 🔧 **Step 10: Mark Survey as Processed (Both Branches)**
-
-1. **Add Block:** Supabase SQL Query
-2. **Configuration:**
-   - **Name:** "Mark Survey as Processed"
-   - **Query:**
-   ```sql
-   SELECT process_survey_completion('{{ survey.id }}');
-   ```
-
----
-
-## 🔧 **Step 11: Log Processing Result (Both Branches)**
-
-1. **Add Block:** Logic/JavaScript
-2. **Configuration:**
-   - **Name:** "Log Processing Result"
-   - **Code:**
-   ```javascript
-   console.log(`✅ Successfully processed survey: ${templateData.survey.title}`);
-   console.log(`📊 Responses: ${templateData.analytics.total_responses}`);
-   console.log(`📧 Email sent to: ${templateData.survey.manager_email}`);
-   console.log(`⏰ Processed at: ${new Date().toISOString()}`);
-
-   return {
-     survey_id: templateData.survey.id,
-     survey_title: templateData.survey.title,
-     response_count: templateData.analytics.total_responses,
-     status: 'processed',
-     processed_at: new Date().toISOString()
-   };
-   ```
-
----
-
-## 🧪 **Step 12: Testing the Workflow**
-
-### **Create a Test Survey:**
-1. Go to your Pulse Check admin panel
-2. Create a test survey with a past expiration date
-3. Add some test responses
-4. Manually trigger the workflow or wait for the scheduled run
-
-### **Verify the Results:**
-1. Check that the PDF is generated correctly
+1. Test the scheduled workflow with a real expired survey
 2. Verify email delivery
-3. Confirm database updates
-4. Review logs for any errors
-
----
-
-## 🔍 **Step 13: Monitoring and Maintenance**
-
-### **Daily Monitoring:**
-- Check Bolt workflow logs
-- Verify email delivery reports
-- Monitor PDF.co usage
-- Review database function performance
-
-### **Weekly Review:**
-- Analyze processing success rates
-- Review any error patterns
-- Check email bounce rates
-- Validate PDF quality
-
----
-
-## 🚨 **Troubleshooting Common Issues**
-
-### **PDF Generation Fails:**
-- Check PDF.co API key is correct
-- Verify HTML template syntax
-- Check API usage limits
-- Review error logs
-
-### **Emails Not Sending:**
-- Verify email service configuration
-- Check recipient email addresses
-- Review spam/bounce reports
-- Validate email templates
-
-### **Database Errors:**
-- Ensure migration is applied
-- Check function permissions
-- Verify data integrity
-- Review query syntax
-
----
-
-## ✅ **Deployment Checklist**
-
-- [ ] Scheduled trigger created (8:00 AM daily)
-- [ ] All workflow blocks added in correct order
-- [ ] PDF.co API key configured
-- [ ] Email templates added
-- [ ] Conditional logic set up
-- [ ] Database functions working
-- [ ] Test survey processed successfully
-- [ ] Monitoring system in place
-- [ ] Error handling configured
-- [ ] Documentation updated
-
----
-
-## 🎉 **Success Metrics**
-
-Once deployed, you should see:
-- **Daily automated processing** of expired surveys
-- **Professional PDF reports** generated and delivered
-- **Email notifications** sent to managers
-- **Database updates** marking surveys as processed
-- **Comprehensive logging** for monitoring
-- **Zero manual intervention** required
-
-Your leadership development platform now has a **fully automated reporting system**! 🚀
-
----
-
-## 📞 **Support**
-
-If you encounter any issues during deployment:
-1. Check the Bolt workflow logs first
-2. Verify all configuration settings
-3. Test individual blocks separately
-4. Review the troubleshooting section above
-5. Contact Bolt support if needed
-
-**Remember:** This system will save you hours of manual work every week while providing professional, valuable reports to your coaching clients!
+3. Check database updates
+4. Monitor the daily automated processing
